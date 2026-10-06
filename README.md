@@ -91,6 +91,14 @@ This is an independently applicable APK-source patch, not part of either Mosh
 build or the phone installer. Emulator regressions record the unpatched defect as
 expected failures. No APK or app data is changed by building or packaging Mosh.
 
+## Maintained Protocol Peers In Verification
+
+Protocol-rejection tests use the maintained ordinary-protocol fork rather than
+missing /usr/bin stock executables. MOSH_ORDINARY_CLIENT and MOSH_ORDINARY_SERVER
+override the peers. Both directions still assert an actual incompatible protocol
+error; absence of stock software is not an excuse to skip the checks. Shared
+terminal fixtures accept sibling tmux or its existing tmux-simple directory name.
+
 ## Upstream Ancestry
 
 This main branch starts at the upstream mosh-1.4.0 Git release, not an unrelated

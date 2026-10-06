@@ -344,6 +344,27 @@ def test_resize_after_delivery_and_before_any_history(environment, kind):
         session.close()
 
 
+@pytest.mark.parametrize("ordinary_side", ["client", "server"])
+def test_ordinary_peer_is_rejected(environment, ordinary_side):
+    session = None
+    try:
+        peer = {
+            ordinary_side: os.environ.get(
+                f"MOSH_ORDINARY_{ordinary_side.upper()}",
+                str(TMUX / f"build/runtime/mosh-{ordinary_side}"),
+            )
+        }
+        session = Session(environment, **peer)
+        app = session.attachment
+        state = app.until(
+            lambda s: b"protocol" in s["text"] and b"mismatch" in s["text"], timeout=15
+        )
+        assert b"mismatch" in state["text"]
+    finally:
+        if session:
+            session.close()
+
+
 @pytest.mark.parametrize("kind", ["termux", "vte"])
 def test_keyboard_resize_never_draws_old_geometry(environment, kind):
     session = Session(
