@@ -68,6 +68,8 @@ private:
   Terminal::Display display;
   Terminal::HistoryReplay history_replay;
   Terminal::ResizeDebouncer resize_debouncer;
+  Terminal::ResizeCursorQuery resize_cursor_query;
+  bool resize_cursor_needed;
   int pending_history_scroll;
 
   std::wstring connecting_notification;
@@ -78,6 +80,7 @@ private:
   void main_init( void );
   void process_network_input( void );
   bool process_user_input( int fd );
+  bool process_user_bytes(const std::string &input);
   bool process_resize( void );
 
   void output_new_frame( void );
@@ -106,6 +109,8 @@ public:
       history_replay(getenv("TERMUX_VERSION") != NULL
         || (getenv("PREFIX") != NULL && strstr(getenv("PREFIX"), "/com.termux/files/usr") != NULL)),
       resize_debouncer(),
+      resize_cursor_query(),
+      resize_cursor_needed(false),
       pending_history_scroll(0),
       connecting_notification(),
       repaint_requested( false ),

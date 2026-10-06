@@ -60,6 +60,13 @@ The client retains every bounded resize-history batch rather than just the first
 launcher and replay. Unicode, large archives, narrow widths and coloured Fish
 output have distinct regressions; emulator limitations must remain visible.
 
+## Measured Local History Restoration
+
+After resize settles, a local DEC private cursor-position report measures the
+history prefix pulled into view. That prefix is restored before redraw instead of
+being erased by an inaccurate row estimate. Fragmented replies remain local;
+ordinary keys pass through and unsupported-terminal fallback is bounded.
+
 ## Upstream Ancestry
 
 This main branch starts at the upstream mosh-1.4.0 Git release, not an unrelated

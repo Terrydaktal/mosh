@@ -226,6 +226,46 @@ static void resize_history_spans_batches()
   }
 }
 
+static void resize_cursor_queries()
+{
+  ResizeCursorQuery query;
+  assert(query.input("ordinary\033[1;2R", 0) == "ordinary\033[1;2R");
+  query.begin(152, 161, 0, 100);
+  assert(query.input("typed\033[?", 101) == "typed");
+  assert(query.input("81;12;1Rmore", 102) == "more");
+  assert(query.received() && !query.pending());
+  assert(query.scroll(152, 161) == 80);
+  assert(query.scroll(81, 59) == -1);
+  query.consume();
+
+  query.begin(80, 24, 4, 200);
+  assert(query.input("\033", 201).empty());
+  assert(query.input("\033[?6;10R", 202) == "\033");
+  assert(query.scroll(80, 24) == 1);
+  query.consume();
+
+  query.begin(80, 24, 0, 300);
+  query.invalidate();
+  assert(query.input("\033[?10;2;1R", 301).empty());
+  assert(query.received() && query.scroll(80, 24) == -1);
+  query.consume();
+
+  query.begin(80, 24, 0, 400);
+  const std::string overflow("\033[?9999999999999999999999999;2;1R");
+  assert(query.input(overflow, 401) == overflow);
+  assert(query.input("\033[A\003", 402) == "\033[A\003");
+  assert(!query.received());
+  assert(query.input("\033", 403).empty());
+  query.expire(425);
+  assert(query.take_buffered() == "\033");
+  assert(query.pending());
+  query.expire(650);
+  assert(!query.pending() && !query.enabled());
+  assert(query.wait_time(650) == INT_MAX);
+  assert(query.input("late\033[?4;2;1Rkeys", 651) == "latekeys");
+  assert(!query.received());
+}
+
 int main()
 {
   std::setlocale(LC_ALL, "C.UTF-8");
@@ -235,5 +275,6 @@ int main()
   resize_bursts();
   wrapped_resize();
   resize_history_spans_batches();
+  resize_cursor_queries();
   std::cout << "native history checks passed\n";
 }

@@ -284,7 +284,35 @@ void STMClient::output_new_frame( void )
       network->get_current_state().push_back(Parser::Resize(window_size.ws_col, window_size.ws_row));
     resize_debouncer.sent();
   }
+  resize_cursor_query.expire(timestamp());
+  const string buffered_input = resize_cursor_query.take_buffered();
+  if (!buffered_input.empty() && !process_user_bytes(buffered_input))
+    network->start_shutdown();
   if (resize_debouncer.pending()) return;
+  if (resize_cursor_needed) {
+    if (resize_cursor_query.received()) {
+      const int scroll = resize_cursor_query.scroll(window_size.ws_col, window_size.ws_row);
+      resize_cursor_query.consume();
+      if (scroll >= 0) {
+        // Preserve the canonical minimum too: wide-glyph partial records can
+        // place the terminal cursor slightly differently from our row model.
+        pending_history_scroll = std::max(pending_history_scroll, scroll);
+        resize_cursor_needed = false;
+      }
+    }
+    if (resize_cursor_query.pending()) return;
+    if (resize_cursor_needed && resize_cursor_query.enabled()) {
+      Terminal::Framebuffer reflowed(local_framebuffer);
+      reflowed.set_history_log(shared::make_shared<Terminal::HistoryLog>());
+      reflowed.resize(window_size.ws_col, window_size.ws_row, false, true);
+      resize_cursor_query.begin(window_size.ws_col, window_size.ws_row,
+        reflowed.ds.get_cursor_row(), timestamp());
+      if (swrite(STDOUT_FILENO, "\033[?6n", 5) < 0)
+        throw std::runtime_error("failed to query native terminal cursor");
+      return;
+    }
+    resize_cursor_needed = false;
+  }
 
   /* fetch target state */
   new_state = network->get_latest_remote_state().state.get_fb();
@@ -351,6 +379,13 @@ bool STMClient::process_user_input( int fd )
     return false;
   }
 
+  const string input = resize_cursor_query.input(string(buf, bytes_read), timestamp());
+  return process_user_bytes(input);
+}
+
+bool STMClient::process_user_bytes(const string &input)
+{
+  const ssize_t bytes_read = input.size();
   NetworkType &net = *network;
 
   if ( net.shutdown_in_progress() ) {
@@ -365,7 +400,7 @@ bool STMClient::process_user_input( int fd )
   }
 
   for ( int i = 0; i < bytes_read; i++ ) {
-    char the_byte = buf[ i ];
+    char the_byte = input[ i ];
 
     if ( !paste ) {
       overlays.get_prediction_engine().new_user_byte( the_byte, local_framebuffer );
@@ -452,6 +487,11 @@ bool STMClient::process_resize( void )
       local_framebuffer, observed.ws_col, observed.ws_row);
   }
   history_replay.remember_resize(local_framebuffer, observed.ws_col, observed.ws_row);
+  if (history_replay.uses_termux_reflow() && history_replay.acknowledged()
+      && !local_framebuffer.alternate_screen) {
+    resize_cursor_query.invalidate();
+    resize_cursor_needed = true;
+  }
   window_size = observed;
   repaint_requested = true;
   
@@ -484,6 +524,7 @@ bool STMClient::main( void )
 
       int wait_time = std::min( network->wait_time(), overlays.wait_time() );
       wait_time = std::min(wait_time, resize_debouncer.wait_time(timestamp()));
+      wait_time = std::min(wait_time, resize_cursor_query.wait_time(timestamp()));
 
       /* Handle startup "Connecting..." message */
       if ( still_connecting() ) {

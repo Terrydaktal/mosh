@@ -61,6 +61,7 @@ namespace Terminal {
       delivered_bytes(0), preserved_partial(false), termux_reflow(termux_resize),
       cached_width(0), cached_rows(0) {}
     uint64_t acknowledged() const { return next; }
+    bool uses_termux_reflow() const { return termux_reflow; }
     // Does not advance the acknowledgement until commit(), after stdout drains.
     std::string prepare(const HistoryBatch &batch, int height) const;
     void commit(const HistoryBatch &batch);
