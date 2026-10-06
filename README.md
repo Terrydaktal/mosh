@@ -1,15 +1,15 @@
 # mosh
 
 This fork is published as [Terrydaktal/mosh](https://github.com/Terrydaktal/mosh),
-with the maintained patch series and build tooling on `main`.
+with the maintained source and build tooling on `main`.
 
 `main` descends from upstream tag `mosh-1.4.0`
 (`bc73a26316ede2a79259d859f8ee309b32412420`). Upstream source and history
-are retained, and the history-profile patches are also applied to the tracked
-source. The reproducible builders still use the pinned 1.4.0 archive; the
+are retained, and the history-profile changes live directly in the tracked
+source. The main builder compiles a fresh snapshot of that working tree; the
 ordinary-protocol profile remains independently built from that archive.
-The fork has twelve changes on top of that release. Commits added to upstream
-`master` after 1.4.0 remain separate until the patches are ported and verified.
+The initial published series has twelve changes on top of that release. Commits added to upstream
+`master` after 1.4.0 remain separate until the fork changes are ported and verified.
 The `mosh-native` executable and local directory names identify the history-aware
 protocol profile and remain compatible with existing client commands.
 The `compat/` directory also records the ordinary-protocol packet-age profile
@@ -72,21 +72,27 @@ mouse reporting still own mouse events while that reporting is active.
 ## Build And Install
 
 Desktop prerequisites: C++17 compiler, make, autoconf, automake, pkg-config,
-protoc/protobuf development files, OpenSSL, ncurses, zlib, Perl, curl and patch.
+protoc/protobuf development files, OpenSSL, ncurses, zlib, Perl, Git and tar.
+Only the separate ordinary-protocol compatibility build also needs curl and patch.
 
 ```sh
 scripts/build.sh
 scripts/link.sh
 ```
 
-The build verifies the pinned upstream archive, applies the ordered patches in
-a new directory, regenerates autotools files, compiles, and publishes symlinks under
+The build snapshots repository source into a new directory, including uncommitted
+edits and new files but excluding ignored build artifacts. It regenerates autotools
+files, compiles, and publishes symlinks under
 `build/runtime`. The link script creates symlinks in `~/.local/bin` and refuses
 conflicting existing paths. It does not stop, replace or migrate live servers.
 Use `JOBS=N` to limit build parallelism. Build logs and hashes remain beside each
-build. Run the build before the link script.
+build. `SOURCE-FILES` and `SOURCE-SHA256SUMS` record the source inputs;
+`BUILD-SHA256SUMS` records their manifest and generated tools. Set
+`BUILD_RUNTIME=/absolute/directory` to verify a build without changing the normal
+runtime links. Run the build before the link script.
 
-For Termux, `scripts/bundle-termux.sh` prepares a source archive, checksum and
+For Termux, `scripts/bundle-termux.sh` prepares the same repository source snapshot,
+source manifest, archive checksum and
 installer under `build/termux-bundle`. Transfer those three files to Download,
 then run inside a local Termux tab:
 
@@ -97,7 +103,9 @@ bash /sdcard/Download/mosh-native-install.sh
 The installer verifies the bundle, installs build dependencies using Termux's
 package manager, builds only the client in a fresh private directory, and
 creates separate native-tool symlinks. It does not overwrite ordinary Mosh or
-alter running Termux sessions. Termux needs permission to read shared storage.
+alter running Termux sessions. The bundle's `SOURCE-FILES` manifest lets the builder
+work without Git, an upstream source download or Mosh patch replay. Termux needs
+permission to read shared storage.
 It installs both `libprotobuf` (the library) and `protobuf` (the `protoc`
 compiler), and checks that the compiler runs before extracting build sources.
 ADB file transfer alone does not grant access to Termux's private app directory.
@@ -137,7 +145,7 @@ Native4 also underestimated scrollback pulled into view after very narrow,
 space-padded table output. The Google Play Termux `2025.10.05` emulator drops
 soft-wrap metadata on space-only rows. Its resulting physical history can be
 longer than the logical-record estimate; clearing the viewport then erased text
-that had not been returned to scrollback. Patch 0005 measures the local cursor
+that had not been returned to scrollback. The client now measures the local cursor
 with DEC's private position report after resize settles, preserves at least the
 existing canonical row minimum, and restores the measured prefix before redraw.
 Replies stay local rather than becoming Fish input. Fragmented replies, resize
@@ -148,7 +156,7 @@ Native5 also missed the cursor's empty cell when a prompt exactly filled the
 new width. For an eight-character prompt shrunk to eight columns, Termux reflows
 that cursor onto another row; Mosh's model left it in a phantom end column.
 It consequently remembered too short a scrollback prefix and replayed a fragment
-that Termux had already stored. Patch 0006 includes the cursor cell in the
+that Termux had already stored. The client includes the cursor cell in the
 Termux-specific width-reflow model. Its C++ regression uses independently
 measured Termux cursor positions, and the integration tests check words, order,
 duplication and actual line structure at 20, 12, 8, 5, 3 and 2 columns.
@@ -164,7 +172,7 @@ with the emulator alone, without Fish, Mosh or tmux.
 
 `terminal-fixes/termux-preserve-space-wrap.patch` fixes that condition in the
 Termux app's `terminal-emulator/.../TerminalBuffer.java`. It is separate from the
-ordered Mosh patches; neither Mosh build nor phone installer applies it to an APK.
+Mosh source; neither Mosh build nor phone installer applies it to an APK.
 The source-matched emulator passes the narrow table/prose cases with that patch.
 The unmodified emulator's table alignment failures remain explicit expected
 failures, not successful Mosh tests. Set `MOSH_TEST_TERMUX_WRAP_FIXED=1` only
@@ -252,7 +260,7 @@ service. A separate protocol ID prevents silent mixing with stock endpoints.
 
 ## Packet Reporting
 
-Patch 0002 supplies the same owner-only `mosh-status/PID.sock` API as the current
+The tracked server supplies the same owner-only `mosh-status/PID.sock` API as the current
 ordinary Mosh server. It exposes the timestamp of the last fresh authenticated
 client packet, not keyboard idle time. Unauthenticated traffic, replayed packets
 and local status queries do not refresh it. No extra network listener or polling
@@ -310,21 +318,15 @@ mosh/
   scripts/mosh.pl                    tracked history-profile launcher
   autogen.sh, conf/, m4/             retained upstream bootstrap inputs
   man/, debian/, fedora/, macosx/    retained upstream documentation and packaging
-  patches/0001-native-history.patch   emulator, protocol, client, server and wrapper changes
-  patches/0002-last-received.patch    same-user status socket and authenticated packet timestamp
-  patches/0003-main-screen-reflow.patch  main-screen wrapping and resize archive tracking
-  patches/0004-complete-client-reflow.patch  terminal-specific reflow and multi-batch resize replay
-  patches/0005-measured-termux-history.patch  local cursor query before resize-history restoration
-  patches/0006-cursor-boundary-reflow.patch  Termux cursor-cell reflow and resize deduplication
   compat/last-received.patch          ordinary-protocol authenticated packet-age profile
   compat/server-status.h             owner-restricted local status endpoint for that profile
   terminal-fixes/termux-preserve-space-wrap.patch  separate Termux APK source fix, not automatically installed
-  scripts/build.sh                   pinned archive + ordered patches -> binaries and hashes
+  scripts/build.sh                   repository source snapshot -> binaries and hashes
+  scripts/source-snapshot.sh         working tree or bundled manifest -> isolated source and checksums
   scripts/build-compat.sh             pinned archive + compat profile -> ordinary-protocol fork binaries
   scripts/link.sh                    built tools -> non-overwriting user-local symlinks
   scripts/unit-tests.sh              built libraries + C++ tests -> bounded protocol checks
-  scripts/update-patch.sh             development source versus pristine source -> patch
-  scripts/bundle-termux.sh            source, scripts and archive -> portable phone bundle
+  scripts/bundle-termux.sh            repository source and manifest -> portable phone bundle
   scripts/termux-install.sh           phone bundle -> Termux dependencies, build and symlinks
   tests/native_history_test.cc        acknowledgement, replay, bounds and mode tests
   tests/test_terminal.py              direct Mosh/PTY/emulator and ordinary-Mosh compatibility
@@ -343,7 +345,7 @@ mosh/
   artifacts/                         ignored synthetic test results
 ```
 
-The patch is based on upstream Mosh 1.4.0, licensed under GPLv3 or later with
+The fork is based on upstream Mosh 1.4.0, licensed under GPLv3 or later with
 Mosh's OpenSSL linking exception; see `COPYING` and source-file notices.
 
 References: [Mosh's protocol explanation](https://mosh.org/#techinfo),

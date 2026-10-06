@@ -57,3 +57,5 @@ __pycache__/
 /scripts/mosh-native
 /src/frontend/mosh-native-client
 /src/frontend/mosh-native-server
+/SOURCE-FILES
+/SOURCE-SHA256SUMS

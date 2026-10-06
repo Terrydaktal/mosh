@@ -65,11 +65,12 @@
     },
     {
       "id": "BUILD-01",
-      "contract": "pinned source, reproducible clean patch build and separate non-overwriting symlink install",
+      "contract": "repository-source snapshots include working-tree edits; successful builds publish only symlinks and never replace running processes",
       "tests": [
         "scripts/build.sh",
         "scripts/link.sh",
-        "tests/test_terminal.py::test_wrapper_resolves_its_own_client_outside_path"
+        "tests/test_terminal.py::test_wrapper_resolves_its_own_client_outside_path",
+        "tests/test_source_build.py::test_builder_uses_current_source_and_publishes_only_after_success"
       ]
     },
     {
@@ -126,10 +127,11 @@
     },
     {
       "id": "BUILD-04",
-      "contract": "A clean host/Termux build includes the activated terminal-model launcher and reflow source changes as ordered patches, with old builds retained",
+      "contract": "host and Termux builds compile the same maintained source without replaying fork patches; Git-free phone bundles carry a source manifest",
       "tests": [
         "tests/test_terminal.py::test_real_wrapper_launches_matching_client_without_path_entry",
-        "scripts/build.sh"
+        "scripts/build.sh",
+        "tests/test_source_build.py::test_snapshot_uses_dirty_and_new_files_preserving_links_not_build_artifacts"
       ]
     },
     {

@@ -18,7 +18,7 @@ printf '\nStarting mosh-native client build: %s\n' "$(date -Is)"
 	sha256sum --check mosh-native-source.sha256
 )
 pkg install -y clang make autoconf automake pkg-config libprotobuf protobuf abseil-cpp \
-	libandroid-support openssl ncurses patch curl tar perl
+	libandroid-support openssl ncurses tar perl
 if ! command -v protoc >/dev/null 2>&1 || ! protoc --version; then
 	printf 'The protobuf package must provide a working protoc compiler. Check its installation and PATH before retrying.\n' >&2
 	exit 1

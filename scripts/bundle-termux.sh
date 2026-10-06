@@ -3,8 +3,10 @@ set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 destination="$root/build/termux-bundle"
 mkdir -p "$destination"
-tar --exclude=__pycache__ --exclude='*.pyc' -czf "$destination/mosh-native-source.tar.gz" -C "$root" \
-	README.md COPYING patches terminal-fixes scripts tests verification.json build/downloads/mosh-1.4.0.tar.gz
+source=$(mktemp -d "$root/build/termux-source.XXXXXX")
+trap 'rm -rf -- "$source"' EXIT
+bash "$root/scripts/source-snapshot.sh" "$source"
+tar -czf "$destination/mosh-native-source.tar.gz" -C "$source" .
 (
 	cd -- "$destination"
 	sha256sum mosh-native-source.tar.gz >mosh-native-source.sha256
