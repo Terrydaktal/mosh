@@ -31,6 +31,12 @@ tools by symlink; unrelated files and links are refused before changes occur.
 tests/ contains isolated PTY/emulator and C++ protocol checks; unit-tests.sh uses
 the fresh compiled source. update-patch.sh regenerates the core patch from builds.
 
+## Keyboard And Rapid Resizing
+
+The native client settles resize bursts for 120 ms, notices geometry changes even
+before SIGWINCH is processed, and withholds remote frames for obsolete dimensions.
+The bounded debounce does not reinterpret ordinary input as resize events.
+
 ## Upstream Ancestry
 
 This main branch starts at the upstream mosh-1.4.0 Git release, not an unrelated

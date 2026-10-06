@@ -42,6 +42,7 @@
 #include "user.h"
 #include "shared.h"
 #include "terminaloverlay.h"
+#include "nativeviewport.h"
 
 class STMClient {
 private:
@@ -66,6 +67,7 @@ private:
   NetworkPointer network;
   Terminal::Display display;
   Terminal::HistoryReplay history_replay;
+  Terminal::ResizeDebouncer resize_debouncer;
   int pending_history_scroll;
 
   std::wstring connecting_notification;
@@ -102,6 +104,7 @@ public:
       network(),
       display( true, true ), /* the terminal owns scrolling, not copy mode */
       history_replay(),
+      resize_debouncer(),
       pending_history_scroll(0),
       connecting_notification(),
       repaint_requested( false ),

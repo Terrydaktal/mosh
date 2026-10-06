@@ -277,3 +277,86 @@ def test_wrapper_resolves_its_own_client_outside_path(environment):
     )
     assert result.returncode == 0
     assert b"mosh-native-server" in result.stdout
+
+
+@pytest.mark.parametrize("kind", ["termux", "vte"])
+@pytest.mark.parametrize("size", [(51, 39), (80, 39), (51, 16), (101, 24)])
+def test_resize_during_history_transfer(environment, kind, size):
+    session = Session(environment, kind, lossy=True)
+    app = session.attachment
+    try:
+        app.until(lambda s: b"READY" in s["screen"], timeout=10)
+        app.send(b"H")
+        app.until(lambda s: b"history-1-00000-end" in s["text"], timeout=15)
+        app.resize(*size)
+        state = app.until(lambda s: b"history-1-01499-end" in s["text"], timeout=30)
+        assert_records(state)
+        if kind == "termux":
+            assert not state["alternate"]
+            assert not state["mouse"]
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize("kind", ["termux", "vte"])
+def test_resize_after_delivery_and_before_any_history(environment, kind):
+    session = Session(environment, kind)
+    app = session.attachment
+    try:
+        app.until(lambda s: b"READY" in s["screen"], timeout=10)
+        app.resize(80, 39)
+        assert app.until(lambda s: b"READY" in s["screen"])["text"].count(b"READY") == 1
+        app.resize(80, 24)
+        app.send(b"H")
+        app.until(lambda s: b"history-1-01499-end" in s["text"], timeout=30)
+        app.resize(80, 120)
+        app.send(b"typed-after-resize")
+        state = app.until(
+            lambda s: (
+                b"74797065642d61667465722d726573697a65"
+                in (environment / "input.log").read_bytes()
+            ),
+            timeout=10,
+        )
+        assert_records(state)
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize("kind", ["termux", "vte"])
+def test_keyboard_resize_never_draws_old_geometry(environment, kind):
+    session = Session(
+        environment,
+        kind,
+        program=[
+            sys.executable,
+            str(ROOT / "tests/resize_workload.py"),
+            str(environment),
+        ],
+    )
+    app = session.attachment
+    try:
+        app.until(lambda s: b"viewport-80x24" in s["screen"], timeout=10)
+        session.link.paused = True
+        app.resize(80, 12)
+        wire_start = len(app.wire)
+        # Deliberately keep the old remote frame around longer than a resize burst.
+        app.pump(0.35)
+        drawn_rows = [
+            int(row) for row in re.findall(rb"\x1b\[(\d+);\d+H", app.wire[wire_start:])
+        ]
+        assert all(row <= 12 for row in drawn_rows), drawn_rows
+        app.send(b"typed-with-keyboard")
+        session.link.paused = False
+        app.until(lambda s: b"viewport-80x12" in s["screen"], timeout=10)
+        app.until(
+            lambda s: (
+                (environment / "input.log").exists()
+                and b"typed-with-keyboard" in (environment / "input.log").read_bytes()
+            ),
+            timeout=10,
+        )
+        app.resize(80, 24)
+        app.until(lambda s: b"viewport-80x24" in s["screen"], timeout=10)
+    finally:
+        session.close()

@@ -5,7 +5,7 @@ before="$root/build/upstream/mosh-1.4.0"
 after="$root/build/development"
 files=(
 	configure.ac scripts/Makefile.am scripts/mosh.pl
-	src/frontend/Makefile.am src/frontend/mosh-server.cc src/frontend/stmclient.cc src/frontend/stmclient.h
+	src/frontend/Makefile.am src/frontend/mosh-server.cc src/frontend/stmclient.cc src/frontend/stmclient.h src/frontend/nativeviewport.h
 	src/network/network.h src/network/networktransport-impl.h
 	src/protobufs/hostinput.proto src/protobufs/userinput.proto
 	src/statesync/completeterminal.cc src/statesync/completeterminal.h src/statesync/user.cc src/statesync/user.h

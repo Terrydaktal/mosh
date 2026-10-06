@@ -243,6 +243,7 @@ void STMClient::main_init( void )
 
   /* local state */
   local_framebuffer = Terminal::Framebuffer( window_size.ws_col, window_size.ws_row );
+  resize_debouncer = Terminal::ResizeDebouncer(window_size.ws_col, window_size.ws_row);
   new_state = Terminal::Framebuffer( 1, 1 );
 
   /* initialize screen */
@@ -270,8 +271,27 @@ void STMClient::output_new_frame( void )
     return;
   }
 
+  /* SIGCONT or network input can wake us before a pending SIGWINCH. Never
+     erase the resized viewport using stale dimensions in that interval. */
+  struct winsize observed;
+  if (ioctl(STDIN_FILENO, TIOCGWINSZ, &observed) == 0
+      && (observed.ws_row != window_size.ws_row || observed.ws_col != window_size.ws_col)
+      && !process_resize())
+    throw std::runtime_error("failed to update native viewport size");
+
+  if (resize_debouncer.ready(timestamp())) {
+    if (!network->shutdown_in_progress())
+      network->get_current_state().push_back(Parser::Resize(window_size.ws_col, window_size.ws_row));
+    resize_debouncer.sent();
+  }
+  if (resize_debouncer.pending()) return;
+
   /* fetch target state */
   new_state = network->get_latest_remote_state().state.get_fb();
+
+  // A tall stale frame scrolls a smaller terminal while the resize is in flight.
+  if (new_state.ds.get_width() != window_size.ws_col
+      || new_state.ds.get_height() != window_size.ws_row) return;
 
   string frame;
   if (pending_history_scroll) {
@@ -422,9 +442,7 @@ bool STMClient::process_resize( void )
     perror( "ioctl TIOCGWINSZ" );
     return false;
   }
-  if (observed.ws_col == window_size.ws_col && observed.ws_row == window_size.ws_row) return true;
-  if (!network->shutdown_in_progress())
-    network->get_current_state().push_back(Parser::Resize(observed.ws_col, observed.ws_row));
+  if (!resize_debouncer.observe(observed.ws_col, observed.ws_row, timestamp())) return true;
 
   /* VTE and Termux pull scrollback into the viewport when it grows. Put
      that prefix back with the eventual repaint, not during every animation step.
@@ -465,6 +483,7 @@ bool STMClient::main( void )
       output_new_frame();
 
       int wait_time = std::min( network->wait_time(), overlays.wait_time() );
+      wait_time = std::min(wait_time, resize_debouncer.wait_time(timestamp()));
 
       /* Handle startup "Connecting..." message */
       if ( still_connecting() ) {

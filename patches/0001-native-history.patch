@@ -92,7 +92,7 @@
  
 -mosh_client_SOURCES = mosh-client.cc stmclient.cc stmclient.h terminaloverlay.cc terminaloverlay.h
 -mosh_server_SOURCES = mosh-server.cc
-+mosh_native_client_SOURCES = mosh-client.cc stmclient.cc stmclient.h terminaloverlay.cc terminaloverlay.h
++mosh_native_client_SOURCES = mosh-client.cc stmclient.cc stmclient.h nativeviewport.h terminaloverlay.cc terminaloverlay.h
 +mosh_native_server_SOURCES = mosh-server.cc
 --- a/src/frontend/mosh-server.cc
 +++ b/src/frontend/mosh-server.cc
@@ -169,10 +169,40 @@
  	   network_timeout_ms <= time_since_remote_state ) {
 --- a/src/frontend/stmclient.cc
 +++ b/src/frontend/stmclient.cc
-@@ -273,14 +273,31 @@
+@@ -243,6 +243,7 @@
+ 
+   /* local state */
+   local_framebuffer = Terminal::Framebuffer( window_size.ws_col, window_size.ws_row );
++  resize_debouncer = Terminal::ResizeDebouncer(window_size.ws_col, window_size.ws_row);
+   new_state = Terminal::Framebuffer( 1, 1 );
+ 
+   /* initialize screen */
+@@ -270,17 +271,53 @@
+     return;
+   }
+ 
++  /* SIGCONT or network input can wake us before a pending SIGWINCH. Never
++     erase the resized viewport using stale dimensions in that interval. */
++  struct winsize observed;
++  if (ioctl(STDIN_FILENO, TIOCGWINSZ, &observed) == 0
++      && (observed.ws_row != window_size.ws_row || observed.ws_col != window_size.ws_col)
++      && !process_resize())
++    throw std::runtime_error("failed to update native viewport size");
++
++  if (resize_debouncer.ready(timestamp())) {
++    if (!network->shutdown_in_progress())
++      network->get_current_state().push_back(Parser::Resize(window_size.ws_col, window_size.ws_row));
++    resize_debouncer.sent();
++  }
++  if (resize_debouncer.pending()) return;
++
    /* fetch target state */
    new_state = network->get_latest_remote_state().state.get_fb();
  
++  // A tall stale frame scrolls a smaller terminal while the resize is in flight.
++  if (new_state.ds.get_width() != window_size.ws_col
++      || new_state.ds.get_height() != window_size.ws_row) return;
++
 +  string frame;
 +  if (pending_history_scroll) {
 +    char scroll[80];
@@ -205,7 +235,7 @@
  
    repaint_requested = false;
  
-@@ -399,20 +416,26 @@
+@@ -399,20 +436,24 @@
  
  bool STMClient::process_resize( void )
  {
@@ -222,10 +252,10 @@
 -  
 -  if ( !network->shutdown_in_progress() ) {
 -    network->get_current_state().push_back( res );
-+  if (observed.ws_col == window_size.ws_col && observed.ws_row == window_size.ws_row) return true;
-+  if (!network->shutdown_in_progress())
-+    network->get_current_state().push_back(Parser::Resize(observed.ws_col, observed.ws_row));
-+
+-  }
++  if (!resize_debouncer.observe(observed.ws_col, observed.ws_row, timestamp())) return true;
+ 
+-  /* note remote emulator will probably reply with its own Resize to adjust our state */
 +  /* VTE and Termux pull scrollback into the viewport when it grows. Put
 +     that prefix back with the eventual repaint, not during every animation step.
 +     A subsequent shrink already archives that many rows on the terminal side. */
@@ -233,41 +263,100 @@
 +    const int growth = static_cast<int>(observed.ws_row) - window_size.ws_row;
 +    pending_history_scroll = static_cast<int>(std::min<uint64_t>(
 +      std::max(0, pending_history_scroll + growth), history_replay.acknowledged()));
-   }
--
--  /* note remote emulator will probably reply with its own Resize to adjust our state */
++  }
 +  window_size = observed;
 +  repaint_requested = true;
    
    /* tell prediction engine */
    overlays.get_prediction_engine().reset();
-@@ -577,4 +600,3 @@
+@@ -442,6 +483,7 @@
+       output_new_frame();
+ 
+       int wait_time = std::min( network->wait_time(), overlays.wait_time() );
++      wait_time = std::min(wait_time, resize_debouncer.wait_time(timestamp()));
+ 
+       /* Handle startup "Connecting..." message */
+       if ( still_connecting() ) {
+@@ -577,4 +619,3 @@
    }
    return clean_shutdown;
  }
 -
 --- a/src/frontend/stmclient.h
 +++ b/src/frontend/stmclient.h
-@@ -65,6 +65,8 @@
+@@ -42,6 +42,7 @@
+ #include "user.h"
+ #include "shared.h"
+ #include "terminaloverlay.h"
++#include "nativeviewport.h"
+ 
+ class STMClient {
+ private:
+@@ -65,6 +66,9 @@
    typedef shared::shared_ptr< NetworkType > NetworkPointer;
    NetworkPointer network;
    Terminal::Display display;
 +  Terminal::HistoryReplay history_replay;
++  Terminal::ResizeDebouncer resize_debouncer;
 +  int pending_history_scroll;
  
    std::wstring connecting_notification;
    bool repaint_requested, lf_entered, quit_sequence_started;
-@@ -98,7 +100,9 @@
+@@ -98,7 +102,10 @@
        new_state( 1, 1 ),
        overlays(),
        network(),
 -      display( true ), /* use TERM environment var to initialize display */
 +      display( true, true ), /* the terminal owns scrolling, not copy mode */
 +      history_replay(),
++      resize_debouncer(),
 +      pending_history_scroll(0),
        connecting_notification(),
        repaint_requested( false ),
        lf_entered( false ),
+--- a/src/frontend/nativeviewport.h
++++ b/src/frontend/nativeviewport.h
+@@ -0,0 +1,40 @@
++/* Native scrollback extension. GPL-3.0-or-later, with Mosh's OpenSSL exception. */
++#ifndef MOSH_NATIVE_VIEWPORT_H
++#define MOSH_NATIVE_VIEWPORT_H
++
++#include <limits.h>
++#include <stdint.h>
++
++namespace Terminal {
++class ResizeDebouncer {
++  int columns, rows;
++  bool pending_;
++  uint64_t deadline;
++
++public:
++  ResizeDebouncer(int width = 0, int height = 0)
++    : columns(width), rows(height), pending_(false), deadline(0) {}
++
++  bool observe(int width, int height, uint64_t now)
++  {
++    if (width < 1 || height < 1 || width > 10000 || height > 10000
++        || (width == columns && height == rows)) return false;
++    columns = width;
++    rows = height;
++    pending_ = true;
++    deadline = now + 120;
++    return true;
++  }
++
++  bool pending() const { return pending_; }
++  bool ready(uint64_t now) const { return pending_ && now >= deadline; }
++  void sent() { pending_ = false; }
++  int wait_time(uint64_t now) const
++  {
++    if (!pending_) return INT_MAX;
++    return now >= deadline ? 0 : static_cast<int>(deadline - now);
++  }
++};
++}
++
++#endif
 --- a/src/network/network.h
 +++ b/src/network/network.h
 @@ -49,7 +49,7 @@

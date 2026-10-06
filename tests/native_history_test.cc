@@ -1,5 +1,6 @@
 #include "completeterminal.h"
 #include "nativehistory.h"
+#include "nativeviewport.h"
 #include "user.h"
 #include <assert.h>
 #include <cctype>
@@ -113,11 +114,34 @@ static void modes()
   assert(native.new_frame(false, terminal.get_fb(), terminal.get_fb()).find("\033[2J") == std::string::npos);
 }
 
+static void resize_bursts()
+{
+  ResizeDebouncer resize(80, 24);
+  assert(!resize.observe(80, 24, 0));
+  assert(!resize.observe(0, 0, 0));
+  assert(!resize.pending());
+  assert(resize.observe(80, 20, 100));
+  assert(!resize.ready(219));
+  assert(resize.ready(220));
+  assert(resize.observe(80, 16, 150));
+  assert(resize.observe(80, 12, 200));
+  assert(!resize.observe(80, 12, 250)); // duplicate must not prolong the pause
+  assert(!resize.ready(319));
+  assert(resize.wait_time(319) == 1);
+  assert(resize.ready(320));
+  resize.sent();
+  assert(!resize.pending() && !resize.ready(400));
+  assert(resize.wait_time(400) == INT_MAX);
+  assert(resize.observe(80, 24, 500));
+  assert(!resize.ready(619) && resize.ready(620));
+}
+
 int main()
 {
   std::setlocale(LC_ALL, "C.UTF-8");
   transfer();
   bounds();
   modes();
+  resize_bursts();
   std::cout << "native history checks passed\n";
 }

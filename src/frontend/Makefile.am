@@ -15,5 +15,5 @@ if BUILD_SERVER
   bin_PROGRAMS += mosh-native-server
 endif
 
-mosh_native_client_SOURCES = mosh-client.cc stmclient.cc stmclient.h terminaloverlay.cc terminaloverlay.h
+mosh_native_client_SOURCES = mosh-client.cc stmclient.cc stmclient.h nativeviewport.h terminaloverlay.cc terminaloverlay.h
 mosh_native_server_SOURCES = mosh-server.cc
