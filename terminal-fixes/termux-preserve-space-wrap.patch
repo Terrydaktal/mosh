@@ -1,0 +1,11 @@
+--- a/terminal-emulator/src/main/java/com/termux/terminal/TerminalBuffer.java
++++ b/terminal-emulator/src/main/java/com/termux/terminal/TerminalBuffer.java
+@@ -267,7 +267,7 @@
+                 TerminalRow oldLine = oldLines[internalOldRow];
+                 boolean cursorAtThisRow = externalOldRow == oldCursorRow;
+                 // The cursor may only be on a non-null line, which we should not skip:
+-                if (oldLine == null || (!(!newCursorPlaced && cursorAtThisRow)) && oldLine.isBlank()) {
++                if (oldLine == null || (!(!newCursorPlaced && cursorAtThisRow)) && oldLine.isBlank() && !oldLine.mLineWrap) {
+                     skippedBlankLines++;
+                     continue;
+                 } else if (skippedBlankLines > 0) {

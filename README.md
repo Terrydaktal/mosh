@@ -83,6 +83,14 @@ dependencies, builds in a new private directory, logs failures, and replaces onl
 recognised native-tool symlinks. Unrelated files, other links, old binaries, app
 data and running sessions are preserved. It never installs or removes a Termux APK.
 
+## Separate Termux Emulator Fix
+
+The terminal-fixes/ patch preserves the soft-wrap flag of space-only wrapped rows
+inside Termux's Java terminal buffer. The issue reproduces without Mosh or tmux.
+This is an independently applicable APK-source patch, not part of either Mosh
+build or the phone installer. Emulator regressions record the unpatched defect as
+expected failures. No APK or app data is changed by building or packaging Mosh.
+
 ## Upstream Ancestry
 
 This main branch starts at the upstream mosh-1.4.0 Git release, not an unrelated
