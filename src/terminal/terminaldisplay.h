@@ -71,6 +71,7 @@ namespace Terminal {
     bool has_title; /* supports window title and icon name */
 
     const char *smcup, *rmcup; /* enter and exit alternate screen mode */
+    bool native_history;
 
     bool put_row( bool initialized, FrameState &frame, const Framebuffer &f, int frame_y, const Row &old_row, bool wrap ) const;
 
@@ -80,7 +81,7 @@ namespace Terminal {
 
     std::string new_frame( bool initialized, const Framebuffer &last, const Framebuffer &f ) const;
 
-    Display( bool use_environment );
+    Display( bool use_environment, bool use_native_history = false );
   };
 }
 

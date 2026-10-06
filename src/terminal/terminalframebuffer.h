@@ -47,6 +47,7 @@
 /* Terminal framebuffer */
 
 namespace Terminal {
+  class HistoryLog;
   using shared::shared_ptr;
   using shared::make_shared;
   typedef uint32_t color_type;
@@ -382,6 +383,7 @@ namespace Terminal {
     title_type clipboard;
     unsigned int bell_count;
     bool title_initialized; /* true if the window title has been set via an OSC */
+    shared_ptr<HistoryLog> history_log;
 
     row_pointer newrow( void )
     {
@@ -395,6 +397,9 @@ namespace Terminal {
     Framebuffer( const Framebuffer &other );
     Framebuffer &operator=( const Framebuffer &other );
     DrawState ds;
+    bool alternate_screen;
+    void set_history_log(const shared_ptr<HistoryLog> &log) { history_log = log; }
+    shared_ptr<HistoryLog> get_history_log() const { return history_log; }
 
     const rows_type &get_rows() const { return rows; }
 

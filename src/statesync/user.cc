@@ -71,6 +71,7 @@ string UserStream::diff_from( const UserStream &existing ) const
   }
 
   ClientBuffers::UserMessage output;
+  if (history_ack != existing.history_ack) output.set_history_ack(history_ack);
 
   while ( my_it != actions.end() ) {
     switch ( my_it->type ) {
@@ -109,6 +110,7 @@ void UserStream::apply_string( const string &diff )
 {
   ClientBuffers::UserMessage input;
   fatal_assert( input.ParseFromString( diff ) );
+  if (input.has_history_ack()) acknowledge_history(input.history_ack());
 
   for ( int i = 0; i < input.instruction_size(); i++ ) {
     if ( input.instruction( i ).HasExtension( keystroke ) ) {

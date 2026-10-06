@@ -138,7 +138,14 @@ std::string Display::new_frame( bool initialized, const Framebuffer &last, const
     frame.append( "\033[r" );
 
     /* clear screen */
-    frame.append( "\033[0m\033[H\033[2J" );
+    if (native_history) {
+      frame.append("\033[0m");
+      for (int row = 0; row < f.ds.get_height(); ++row) {
+        snprintf(tmp, sizeof(tmp), "\033[%d;1H\033[2K", row + 1);
+        frame.append(tmp);
+      }
+      frame.append("\033[H");
+    } else frame.append( "\033[0m\033[H\033[2J" );
     initialized = false;
     frame.cursor_x = frame.cursor_y = 0;
     frame.current_rendition = initial_rendition();
@@ -174,7 +181,7 @@ std::string Display::new_frame( bool initialized, const Framebuffer &last, const
   }
 
   /* shortcut -- has display moved up by a certain number of lines? */
-  if ( initialized ) {
+  if ( initialized && !native_history ) {
     int lines_scrolled = 0;
     int scroll_height = 0;
 

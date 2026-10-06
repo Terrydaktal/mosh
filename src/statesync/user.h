@@ -37,6 +37,7 @@
 #include <list>
 #include <string>
 #include <assert.h>
+#include <stdint.h>
 
 #include "parseraction.h"
 
@@ -71,9 +72,12 @@ namespace Network {
   {
   private:
     deque<UserEvent> actions;
+    uint64_t history_ack;
     
   public:
-    UserStream() : actions() {}
+    UserStream() : actions(), history_ack(0) {}
+    void acknowledge_history(uint64_t ack) { if (ack > history_ack) history_ack = ack; }
+    uint64_t get_history_ack() const { return history_ack; }
     
     void push_back( const Parser::UserByte & s_userbyte ) { actions.push_back( UserEvent( s_userbyte ) ); }
     void push_back( const Parser::Resize & s_resize ) { actions.push_back( UserEvent( s_resize ) ); }
@@ -87,7 +91,7 @@ namespace Network {
     string diff_from( const UserStream &existing ) const;
     string init_diff( void ) const { return diff_from( UserStream() ); };
     void apply_string( const string &diff );
-    bool operator==( const UserStream &x ) const { return actions == x.actions; }
+    bool operator==( const UserStream &x ) const { return actions == x.actions && history_ack == x.history_ack; }
 
     bool compare( const UserStream & ) { return false; }
   };

@@ -1,0 +1,123 @@
+#include "completeterminal.h"
+#include "nativehistory.h"
+#include "user.h"
+#include <assert.h>
+#include <cctype>
+#include <clocale>
+#include <iostream>
+#include <set>
+#include <stdexcept>
+
+using namespace Terminal;
+
+static size_t occurrences(const std::string &text, const std::string &needle)
+{
+  size_t n = 0, pos = 0;
+  while ((pos = text.find(needle, pos)) != std::string::npos) { ++n; pos += needle.size(); }
+  return n;
+}
+
+static std::string lines(int count)
+{
+  std::string result;
+  for (int i = 0; i < count; ++i) result += "record-" + std::to_string(i) + "-end\r\n";
+  return result;
+}
+
+static void transfer()
+{
+  Complete server(80, 24), client(80, 24);
+  server.enable_history();
+  server.act(lines(4000));
+  server.act(std::string(24, '\n'));
+  HistoryReplay replay;
+  std::string transcript;
+  std::string delayed;
+  for (int round = 0; round < 300 && replay.acknowledged() < 4000; ++round) {
+    // Keep changing the live screen while history is backlogged.
+    server.act("\033[Hlive-" + std::to_string(round) + "\033[K");
+    const std::string update = server.init_diff();
+    if (round % 5 == 0) continue; // lost host update
+    client.apply_string(update);
+    const HistoryBatch batch = client.get_history();
+    const std::string rendered = replay.prepare(batch, 24);
+    transcript += rendered;
+    replay.commit(batch);
+    assert(replay.prepare(batch, 24).empty()); // duplicate
+    if (!delayed.empty()) {
+      Complete old(80, 24);
+      old.apply_string(delayed);
+      assert(replay.prepare(old.get_history(), 24).empty()); // delayed old batch
+    }
+    delayed = update;
+    assert(client.get_fb().get_cell(0, 0)->debug_contents().find("l") != std::string::npos);
+    Network::UserStream ack, decoded;
+    ack.acknowledge_history(replay.acknowledged());
+    decoded.apply_string(ack.init_diff());
+    assert(decoded.empty()); // acknowledgements are not keystrokes
+    if (round % 4 != 0) server.acknowledge_history(decoded.get_history_ack()); // lost ACK
+  }
+  assert(replay.acknowledged() >= 4000);
+  for (int i = 0; i < 4000; ++i)
+    assert(occurrences(transcript, "record-" + std::to_string(i) + "-end") == 1);
+  assert(transcript.find("\033[2J") == std::string::npos);
+  assert(transcript.find("\033[3J") == std::string::npos);
+  assert(transcript.find("\033[?1049h") == std::string::npos);
+}
+
+static void bounds()
+{
+  Complete server(80, 4);
+  server.enable_history(1024, 8);
+  server.act(lines(100));
+  const HistoryBatch batch = server.get_history();
+  assert(batch.valid());
+  assert(batch.first > 0 && batch.records.size() <= 8);
+  HistoryReplay replay;
+  assert(replay.prepare(batch, 4).find("expired while disconnected") != std::string::npos);
+  server.acknowledge_history(UINT64_MAX);
+  assert(server.get_history() == batch);
+  HistoryBatch invalid;
+  invalid.first = UINT64_MAX;
+  invalid.records.push_back("x");
+  assert(!invalid.valid());
+  invalid.first = 0;
+  invalid.records[0] = std::string(HistoryBatch::MAX_RECORD + 1, 'x');
+  assert(!invalid.valid());
+  bool rejected = false;
+  try { replay.prepare(invalid, 24); } catch (const std::invalid_argument &) { rejected = true; }
+  assert(rejected);
+  Complete longline(20, 4);
+  longline.enable_history();
+  longline.act(std::string(50000, 'x') + "\r\n" + std::string(4, '\n'));
+  assert(longline.get_history().valid());
+  assert(longline.get_history().records[0].find("overlong history line omitted") != std::string::npos);
+}
+
+static void modes()
+{
+  Complete terminal(20, 4);
+  terminal.enable_history();
+  terminal.act("\033[?1049h" + lines(40));
+  assert(terminal.get_history().end() == 0);
+  terminal.act("\033[?1049l\033[2;4r" + lines(40));
+  assert(terminal.get_history().end() == 0);
+  terminal.act("\033[r\033[H\033[2J\033[31m" + std::string(100, 'X') + "\033[0m\r\n" + std::string(4, '\n'));
+  const auto batch = terminal.get_history();
+  assert(!batch.records.empty());
+  assert(occurrences(batch.records[0], "X") == 100);
+  assert(batch.records[0].find("31") != std::string::npos);
+  assert(occurrences(batch.records[0], "\r\n") == 1);
+  Display native(false, true);
+  assert(native.open().find("1049h") == std::string::npos);
+  assert(native.new_frame(false, terminal.get_fb(), terminal.get_fb()).find("\033[2J") == std::string::npos);
+}
+
+int main()
+{
+  std::setlocale(LC_ALL, "C.UTF-8");
+  transfer();
+  bounds();
+  modes();
+  std::cout << "native history checks passed\n";
+}

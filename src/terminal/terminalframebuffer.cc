@@ -35,6 +35,7 @@
 #include <stdlib.h>
 
 #include "terminalframebuffer.h"
+#include "nativehistory.h"
 
 using namespace Terminal;
 
@@ -78,7 +79,7 @@ DrawState::DrawState( int s_width, int s_height )
 }
 
 Framebuffer::Framebuffer( int s_width, int s_height )
-  : rows(), icon_name(), window_title(), clipboard(), bell_count( 0 ), title_initialized( false ), ds( s_width, s_height )
+  : rows(), icon_name(), window_title(), clipboard(), bell_count( 0 ), title_initialized( false ), history_log(), ds( s_width, s_height ), alternate_screen(false)
 {
   assert( s_height > 0 );
   assert( s_width > 0 );
@@ -90,7 +91,7 @@ Framebuffer::Framebuffer( int s_width, int s_height )
 Framebuffer::Framebuffer( const Framebuffer &other )
   : rows( other.rows ), icon_name( other.icon_name ), window_title( other.window_title ),
     clipboard( other.clipboard ), bell_count( other.bell_count ),
-    title_initialized( other.title_initialized ), ds( other.ds )
+    title_initialized( other.title_initialized ), history_log(other.history_log), ds( other.ds ), alternate_screen(other.alternate_screen)
 {
 }
 
@@ -103,6 +104,8 @@ Framebuffer & Framebuffer::operator=( const Framebuffer &other )
     clipboard = other.clipboard;
     bell_count = other.bell_count;
     title_initialized = other.title_initialized;
+    history_log = other.history_log;
+    alternate_screen = other.alternate_screen;
     ds = other.ds;
   }
   return *this;
@@ -111,6 +114,11 @@ Framebuffer & Framebuffer::operator=( const Framebuffer &other )
 void Framebuffer::scroll( int N )
 {
   if ( N >= 0 ) {
+    if (history_log && !alternate_screen && ds.get_scrolling_region_top_row() == 0
+        && ds.get_scrolling_region_bottom_row() == ds.get_height() - 1) {
+      for (int i = 0; i < std::min(N, ds.get_height()); ++i)
+        history_log->append_row(*get_row(i));
+    }
     delete_line( ds.get_scrolling_region_top_row(), N );
   } else {
     insert_line( ds.get_scrolling_region_top_row(), -N );
@@ -379,6 +387,8 @@ void Framebuffer::delete_cell( int row, int col )
 
 void Framebuffer::reset( void )
 {
+  if (history_log) history_log->break_line();
+  alternate_screen = false;
   int width = ds.get_width(), height = ds.get_height();
   ds = DrawState( width, height );
   rows = rows_type( height, newrow() );

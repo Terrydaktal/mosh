@@ -20,6 +20,17 @@ Use `JOBS=N` to limit parallel compilation. This does not activate installed lin
 or restart live servers. Dependencies include the C++17 compiler, autotools,
 protobuf/protoc, OpenSSL, ncurses, zlib, curl, Perl, make and patch.
 
+## Native Terminal History
+
+The history-aware client/server retain bounded main-screen scrollback and deliver
+it with acknowledgements alongside the live screen. Both endpoints must use this
+profile; it is not ordinary-Mosh wire compatible. Alternate-screen and partial
+scroll-region output are not normal history. Finite commands drain acknowledged
+history before exit. Run scripts/link.sh after building to install separate native
+tools by symlink; unrelated files and links are refused before changes occur.
+tests/ contains isolated PTY/emulator and C++ protocol checks; unit-tests.sh uses
+the fresh compiled source. update-patch.sh regenerates the core patch from builds.
+
 ## Upstream Ancestry
 
 This main branch starts at the upstream mosh-1.4.0 Git release, not an unrelated

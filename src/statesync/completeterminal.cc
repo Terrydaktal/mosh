@@ -58,6 +58,7 @@ string Complete::act( const string &str )
     actions.clear();
   }
 
+  refresh_history();
   return terminal.read_octets_to_host();
 }
 
@@ -65,13 +66,50 @@ string Complete::act( const Action &act )
 {
   /* apply action to terminal */
   act.act_on_terminal( &terminal );
+  refresh_history();
   return terminal.read_octets_to_host();
+}
+
+void Complete::enable_history(size_t bytes, size_t records)
+{
+  terminal.set_history_log(make_shared<HistoryLog>(bytes, records));
+  history_ack = 0;
+  refresh_history();
+}
+
+void Complete::refresh_history()
+{
+  shared_ptr<HistoryLog> log = terminal.get_fb().get_history_log();
+  if (log) history_batch = log->after(history_ack);
+}
+
+void Complete::acknowledge_history(uint64_t ack)
+{
+  // Never acknowledge future output. This cursor is separate from replaceable
+  // screen snapshots and moves only after the client has written the history.
+  if (ack > history_ack && ack <= history_batch.end()) {
+    history_ack = ack;
+    refresh_history();
+  }
+}
+
+void Complete::finish_history()
+{
+  shared_ptr<HistoryLog> log = terminal.get_fb().get_history_log();
+  if (log) log->break_line();
+  refresh_history();
 }
 
 /* interface for Network::Transport */
 string Complete::diff_from( const Complete &existing ) const
 {
   HostBuffers::HostMessage output;
+  if (!(history_batch == existing.history_batch)) {
+    NativeHistory *history = output.add_instruction()->MutableExtension(native_history);
+    history->set_first(history_batch.first);
+    for (size_t i = 0; i < history_batch.records.size(); ++i)
+      history->add_record(history_batch.records[i]);
+  }
 
   if ( existing.get_echo_ack() != get_echo_ack() ) {
     assert( get_echo_ack() >= existing.get_echo_ack() );
@@ -107,7 +145,16 @@ void Complete::apply_string( const string & diff )
   fatal_assert( input.ParseFromString( diff ) );
 
   for ( int i = 0; i < input.instruction_size(); i++ ) {
-    if ( input.instruction( i ).HasExtension( hostbytes ) ) {
+    if (input.instruction(i).HasExtension(native_history)) {
+      const NativeHistory &history = input.instruction(i).GetExtension(native_history);
+      fatal_assert(history.has_first());
+      fatal_assert(history.record_size() <= static_cast<int>(HistoryBatch::MAX_RECORDS));
+      HistoryBatch batch;
+      batch.first = history.first();
+      for (int j = 0; j < history.record_size(); ++j) batch.records.push_back(history.record(j));
+      fatal_assert(batch.valid());
+      history_batch = batch;
+    } else if ( input.instruction( i ).HasExtension( hostbytes ) ) {
       string terminal_to_host = act( input.instruction( i ).GetExtension( hostbytes ).hoststring() );
       assert( terminal_to_host.empty() ); /* server never interrogates client terminal */
     } else if ( input.instruction( i ).HasExtension( resize ) ) {
@@ -124,7 +171,7 @@ void Complete::apply_string( const string & diff )
 bool Complete::operator==( Complete const &x ) const
 {
   //  assert( parser == x.parser ); /* parser state is irrelevant for us */
-  return (terminal == x.terminal) && (echo_ack == x.echo_ack);
+  return (terminal == x.terminal) && (echo_ack == x.echo_ack) && (history_batch == x.history_batch);
 }
 
 bool Complete::set_echo_ack( uint64_t now )

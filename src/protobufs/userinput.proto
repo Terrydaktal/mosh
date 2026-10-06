@@ -6,6 +6,7 @@ package ClientBuffers;
 
 message UserMessage {
   repeated Instruction instruction = 1;
+  optional uint64 history_ack = 100;
 }
 
 message Instruction {

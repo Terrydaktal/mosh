@@ -273,14 +273,31 @@ void STMClient::output_new_frame( void )
   /* fetch target state */
   new_state = network->get_latest_remote_state().state.get_fb();
 
+  string frame;
+  if (pending_history_scroll) {
+    char scroll[80];
+    snprintf(scroll, sizeof(scroll), "\033[0m\033[r\033[%dS", pending_history_scroll);
+    frame += scroll;
+  }
+  const Terminal::HistoryBatch &history = network->get_latest_remote_state().state.get_history();
+  const string historical = history_replay.prepare(history, window_size.ws_row);
+  if (!historical.empty()) {
+    frame += historical;
+    repaint_requested = true;
+  }
+
   /* apply local overlays */
   overlays.apply( new_state );
 
   /* calculate minimal difference from where we are */
-  const string diff( display.new_frame( !repaint_requested,
-					local_framebuffer,
-					new_state ) );
-  swrite( STDOUT_FILENO, diff.data(), diff.size() );
+  frame += display.new_frame(!repaint_requested, local_framebuffer, new_state);
+  if (!frame.empty() && swrite(STDOUT_FILENO, frame.data(), frame.size()) < 0)
+    throw std::runtime_error("failed to write native terminal frame");
+  if (!historical.empty()) {
+    history_replay.commit(history);
+    network->get_current_state().acknowledge_history(history_replay.acknowledged());
+  }
+  pending_history_scroll = 0;
 
   repaint_requested = false;
 
@@ -399,20 +416,26 @@ bool STMClient::process_user_input( int fd )
 
 bool STMClient::process_resize( void )
 {
+  struct winsize observed;
   /* get new size */
-  if ( ioctl( STDIN_FILENO, TIOCGWINSZ, &window_size ) < 0 ) {
+  if ( ioctl( STDIN_FILENO, TIOCGWINSZ, &observed ) < 0 ) {
     perror( "ioctl TIOCGWINSZ" );
     return false;
   }
-  
-  /* tell remote emulator */
-  Parser::Resize res( window_size.ws_col, window_size.ws_row );
-  
-  if ( !network->shutdown_in_progress() ) {
-    network->get_current_state().push_back( res );
-  }
+  if (observed.ws_col == window_size.ws_col && observed.ws_row == window_size.ws_row) return true;
+  if (!network->shutdown_in_progress())
+    network->get_current_state().push_back(Parser::Resize(observed.ws_col, observed.ws_row));
 
-  /* note remote emulator will probably reply with its own Resize to adjust our state */
+  /* VTE and Termux pull scrollback into the viewport when it grows. Put
+     that prefix back with the eventual repaint, not during every animation step.
+     A subsequent shrink already archives that many rows on the terminal side. */
+  if (history_replay.acknowledged()) {
+    const int growth = static_cast<int>(observed.ws_row) - window_size.ws_row;
+    pending_history_scroll = static_cast<int>(std::min<uint64_t>(
+      std::max(0, pending_history_scroll + growth), history_replay.acknowledged()));
+  }
+  window_size = observed;
+  repaint_requested = true;
   
   /* tell prediction engine */
   overlays.get_prediction_engine().reset();
@@ -577,4 +600,3 @@ bool STMClient::main( void )
   }
   return clean_shutdown;
 }
-

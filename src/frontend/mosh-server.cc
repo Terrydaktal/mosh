@@ -421,6 +421,7 @@ static int run_server( const char *desired_ip, const char *desired_port,
 
   /* open parser and terminal */
   Terminal::Complete terminal( window_size.ws_col, window_size.ws_row );
+  terminal.enable_history();
 
   /* open network */
   Network::UserStream blank;
@@ -676,6 +677,7 @@ static void serve( int host_fd, Terminal::Complete &terminal, ServerConnection &
   #endif
 
   bool child_released = false;
+  bool host_eof = false;
 
   while ( true ) {
     try {
@@ -711,7 +713,7 @@ static void serve( int host_fd, Terminal::Complete &terminal, ServerConnection &
       assert( fd_list.size() == 1 ); /* servers don't hop */
       int network_fd = fd_list.back();
       sel.add_fd( network_fd );
-      if ( !network.shutdown_in_progress() ) {
+      if ( !host_eof && !network.shutdown_in_progress() ) {
 	sel.add_fd( host_fd );
       }
 
@@ -736,6 +738,7 @@ static void serve( int host_fd, Terminal::Complete &terminal, ServerConnection &
 	  
 	  Network::UserStream us;
 	  us.apply_string( network.get_remote_diff() );
+          terminal.acknowledge_history(us.get_history_ack());
 	  /* apply userstream to terminal */
 	  for ( size_t i = 0; i < us.size(); i++ ) {
 	    const Parser::Action &action = us.get_action( i );
@@ -829,7 +832,7 @@ static void serve( int host_fd, Terminal::Complete &terminal, ServerConnection &
 	}
       }
       
-      if ( (!network.shutdown_in_progress()) && sel.read( host_fd ) ) {
+      if ( !host_eof && (!network.shutdown_in_progress()) && sel.read( host_fd ) ) {
 	/* input from the host needs to be fed to the terminal */
 	const int buf_size = 16384;
 	char buf[ buf_size ];
@@ -840,7 +843,9 @@ static void serve( int host_fd, Terminal::Complete &terminal, ServerConnection &
         /* If the pty slave is closed, reading from the master can fail with
            EIO (see #264).  So we treat errors on read() like EOF. */
         if ( bytes_read <= 0 ) {
-	  network.start_shutdown();
+          host_eof = true;
+          terminal.finish_history();
+          network.set_current_state(terminal);
 	} else {
 	  terminal_to_host += terminal.act( string( buf, bytes_read ) );
 	
@@ -850,9 +855,15 @@ static void serve( int host_fd, Terminal::Complete &terminal, ServerConnection &
       }
 
       /* write user input and terminal writeback to the host */
-      if ( swrite( host_fd, terminal_to_host.c_str(), terminal_to_host.length() ) < 0 ) {
+      if ( !host_eof && swrite( host_fd, terminal_to_host.c_str(), terminal_to_host.length() ) < 0 ) {
 	network.start_shutdown();
       }
+
+      // A finite command's final screen is replaceable, but its history is not.
+      // Keep draining until the terminal has acknowledged it. Explicit client
+      // shutdown and the existing network timeout still cancel the drain.
+      if (host_eof && terminal.get_history().records.empty() && !network.shutdown_in_progress())
+        network.start_shutdown();
 
       bool idle_shutdown = false;
       if ( network_timeout_ms &&

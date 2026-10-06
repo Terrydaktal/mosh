@@ -22,9 +22,7 @@ fi
 printf '%s  %s\n' "$sha" "$archive" | sha256sum --check --status
 work=$(mktemp -d "$root/build/release.XXXXXX")
 tar -xzf "$archive" --strip-components=1 -C "$work"
-shopt -s nullglob
-patch_files=("$root"/patches/*.patch)
-for patch_file in "${patch_files[@]}"; do
+for patch_file in "$root"/patches/*.patch; do
 	patch --batch --forward -d "$work" -p1 <"$patch_file"
 done
 utempter=--with-utempter
@@ -39,13 +37,13 @@ fi
 )
 if [[ -n ${PREFIX:-} && -x "$PREFIX/bin/perl" ]]; then
 	# Android has no /usr/bin/env. Do not depend on Termux exec interposition.
-	sed -i "1c#!$PREFIX/bin/perl" "$work/scripts/mosh"
+	sed -i "1c#!$PREFIX/bin/perl" "$work/scripts/mosh-native"
 fi
-names=(mosh mosh-client)
-targets=("$work/scripts/mosh" "$work/src/frontend/mosh-client")
-if [[ -x "$work/src/frontend/mosh-server" ]]; then
-	names+=(mosh-server)
-	targets+=("$work/src/frontend/mosh-server")
+names=(mosh-native mosh-native-client)
+targets=("$work/scripts/mosh-native" "$work/src/frontend/mosh-native-client")
+if [[ -x "$work/src/frontend/mosh-native-server" ]]; then
+	names+=(mosh-native-server)
+	targets+=("$work/src/frontend/mosh-native-server")
 fi
 for name in "${names[@]}"; do
 	if [[ -e "$root/build/runtime/$name" && ! -L "$root/build/runtime/$name" ]]; then
@@ -56,5 +54,5 @@ done
 for i in "${!names[@]}"; do
 	ln -sfn -- "${targets[$i]}" "$root/build/runtime/${names[$i]}"
 done
-sha256sum "$archive" "${patch_files[@]}" "${targets[@]}" >"$work/BUILD-SHA256SUMS"
+sha256sum "$archive" "$root"/patches/*.patch "${targets[@]}" >"$work/BUILD-SHA256SUMS"
 printf 'Built: %s\nBuild logs: %s\n' "$root/build/runtime" "$work"

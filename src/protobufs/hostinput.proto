@@ -25,7 +25,13 @@ message EchoAck {
   optional uint64 echo_ack_num = 8;
 }
 
+message NativeHistory {
+  optional uint64 first = 1;
+  repeated bytes record = 2;
+}
+
 extend Instruction {
+  optional NativeHistory native_history = 100;
   optional HostBytes hostbytes = 2;
   optional ResizeMessage resize = 3;
   optional EchoAck echoack = 7;

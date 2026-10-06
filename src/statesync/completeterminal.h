@@ -38,6 +38,7 @@
 
 #include "parser.h"
 #include "terminal.h"
+#include "nativehistory.h"
 
 /* This class represents the complete terminal -- a UTF8Parser feeding Actions to an Emulator. */
 
@@ -56,12 +57,15 @@ namespace Terminal {
     typedef std::list< std::pair<uint64_t, uint64_t> > input_history_type;
     input_history_type input_history;
     uint64_t echo_ack;
+    HistoryBatch history_batch;
+    uint64_t history_ack;
+    void refresh_history();
 
     static const int ECHO_TIMEOUT = 50; /* for late ack */
 
   public:
     Complete( size_t width, size_t height ) : parser(), terminal( width, height ), display( false ),
-					      actions(), input_history(), echo_ack( 0 ) {}
+						      actions(), input_history(), echo_ack( 0 ), history_batch(), history_ack(0) {}
     
     std::string act( const std::string &str );
     std::string act( const Parser::Action &act );
@@ -72,6 +76,10 @@ namespace Terminal {
     bool set_echo_ack( uint64_t now );
     void register_input_frame( uint64_t n, uint64_t now );
     int wait_time( uint64_t now ) const;
+    void enable_history(size_t bytes = 8 * 1024 * 1024, size_t records = 100000);
+    void acknowledge_history(uint64_t ack);
+    void finish_history();
+    const HistoryBatch &get_history() const { return history_batch; }
 
     /* interface for Network::Transport */
     void subtract( const Complete * ) const {}

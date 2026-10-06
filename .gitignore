@@ -52,3 +52,8 @@ __pycache__/
 /htmlcov/
 /dist/
 *.egg-info/
+
+# Renamed history-profile build outputs
+/scripts/mosh-native
+/src/frontend/mosh-native-client
+/src/frontend/mosh-native-server

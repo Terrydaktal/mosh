@@ -65,6 +65,8 @@ private:
   typedef shared::shared_ptr< NetworkType > NetworkPointer;
   NetworkPointer network;
   Terminal::Display display;
+  Terminal::HistoryReplay history_replay;
+  int pending_history_scroll;
 
   std::wstring connecting_notification;
   bool repaint_requested, lf_entered, quit_sequence_started;
@@ -98,7 +100,9 @@ public:
       new_state( 1, 1 ),
       overlays(),
       network(),
-      display( true ), /* use TERM environment var to initialize display */
+      display( true, true ), /* the terminal owns scrolling, not copy mode */
+      history_replay(),
+      pending_history_scroll(0),
       connecting_notification(),
       repaint_requested( false ),
       lf_entered( false ),

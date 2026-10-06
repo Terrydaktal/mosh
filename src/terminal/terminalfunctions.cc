@@ -295,6 +295,10 @@ static bool *get_DEC_mode( int param, Framebuffer *fb ) {
     return &(fb->ds.auto_wrap_mode);
   case 25:
     return &(fb->ds.cursor_visible);
+  case 47:
+  case 1047:
+  case 1049:
+    return &(fb->alternate_screen);
   case 1004:           /* xterm mouse focus event */
     return &(fb->ds.mouse_focus_event);
   case 1007:           /* xterm mouse alternate scroll */

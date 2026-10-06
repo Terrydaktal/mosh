@@ -80,8 +80,8 @@ static const char *ti_str( const char *capname )
   return val;
 }
 
-Display::Display( bool use_environment )
-  : has_ech( true ), has_bce( true ), has_title( true ), smcup( NULL ), rmcup( NULL )
+Display::Display( bool use_environment, bool use_native_history )
+  : has_ech( true ), has_bce( true ), has_title( true ), smcup( NULL ), rmcup( NULL ), native_history(use_native_history)
 {
   if ( use_environment ) {
     int errret = -2;
@@ -131,7 +131,7 @@ Display::Display( bool use_environment )
       }
     }
 
-    if ( !getenv( "MOSH_NO_TERM_INIT" ) ) {
+    if ( !native_history && !getenv( "MOSH_NO_TERM_INIT" ) ) {
       smcup = ti_str("smcup");
       rmcup = ti_str("rmcup");
     }

@@ -40,6 +40,7 @@ use Text::ParseWords;
 use Socket qw(IPPROTO_TCP);
 use Errno qw(EINTR);
 use POSIX qw(_exit);
+use FindBin qw($RealBin);
 
 BEGIN {
   my @gai_reqs = qw( getaddrinfo getnameinfo AI_CANONNAME AI_NUMERICHOST NI_NUMERICHOST );
@@ -61,8 +62,8 @@ my $have_ipv6 = eval {
 
 $|=1;
 
-my $client = 'mosh-client';
-my $server = 'mosh-server';
+my $client = "$RealBin/../src/frontend/mosh-native-client";
+my $server = 'mosh-native-server';
 
 my $predict = undef;
 
@@ -91,9 +92,9 @@ my @cmdline = @ARGV;
 my $usage =
 qq{Usage: $0 [options] [--] [user@]host [command...]
         --client=PATH        mosh client on local machine
-                                (default: "mosh-client")
+                                (default: sibling native-history client)
         --server=COMMAND     mosh server on remote machine
-                                (default: "mosh-server")
+                                (default: "mosh-native-server")
 
         --predict=adaptive      local echo for slower links [default]
 -a      --predict=always        use local echo even on fast links
@@ -402,7 +403,8 @@ if ( $pid == 0 ) { # child
   if ( $use_remote_ip eq 'proxy' ) {
     # Non-standard shells and broken shrc files cause the ssh
     # proxy to break mysteriously.
-    $ENV{ 'SHELL' } = '/bin/sh';
+    $ENV{ 'SHELL' } = (defined $ENV{'PREFIX'} && -x "$ENV{'PREFIX'}/bin/sh")
+      ? "$ENV{'PREFIX'}/bin/sh" : '/bin/sh';
     my $quoted_proxy_command = shell_quote( $0, "--family=$family" );
     push @sshopts, ( '-S', 'none', '-o', "ProxyCommand=$quoted_proxy_command --fake-proxy -- %h %p" );
   }

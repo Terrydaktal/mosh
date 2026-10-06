@@ -1,0 +1,860 @@
+--- a/configure.ac
++++ b/configure.ac
+@@ -2,7 +2,7 @@
+ # Process this file with autoconf to produce a configure script.
+ 
+ AC_PREREQ([2.61])
+-AC_INIT([mosh], [1.4.0], [mosh-devel@mit.edu])
++AC_INIT([mosh-native], [1.4.0-native2], [mosh-devel@mit.edu])
+ AM_INIT_AUTOMAKE([foreign std-options -Wall -Werror -Wno-portability])
+ m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
+ AC_CONFIG_SRCDIR([src/frontend/mosh-client.cc])
+--- a/scripts/Makefile.am
++++ b/scripts/Makefile.am
+@@ -1,10 +1,10 @@
+ EXTRA_DIST = wrap-compiler-for-flag-check mosh.pl
+ if BUILD_CLIENT
+-  bin_SCRIPTS = mosh
++  bin_SCRIPTS = mosh-native
+ endif
+ CLEANFILES = $(bin_SCRIPTS)
+ 
+-mosh:	mosh.pl ../VERSION Makefile
++mosh-native:	mosh.pl ../VERSION Makefile
+ 	perl -Mdiagnostics -c $(srcdir)/mosh.pl
+-	@sed -e "s/\@VERSION\@/`cat ../VERSION`/" -e "s/\@PACKAGE_STRING\@/@PACKAGE_STRING@/" $(srcdir)/mosh.pl > mosh
+-	@chmod a+x mosh
++	@sed -e "s/\@VERSION\@/`cat ../VERSION`/" -e "s/\@PACKAGE_STRING\@/@PACKAGE_STRING@/" $(srcdir)/mosh.pl > mosh-native
++	@chmod a+x mosh-native
+--- a/scripts/mosh.pl
++++ b/scripts/mosh.pl
+@@ -40,6 +40,7 @@
+ use Socket qw(IPPROTO_TCP);
+ use Errno qw(EINTR);
+ use POSIX qw(_exit);
++use FindBin qw($RealBin);
+ 
+ BEGIN {
+   my @gai_reqs = qw( getaddrinfo getnameinfo AI_CANONNAME AI_NUMERICHOST NI_NUMERICHOST );
+@@ -61,8 +62,8 @@
+ 
+ $|=1;
+ 
+-my $client = 'mosh-client';
+-my $server = 'mosh-server';
++my $client = "$RealBin/../src/frontend/mosh-native-client";
++my $server = 'mosh-native-server';
+ 
+ my $predict = undef;
+ 
+@@ -91,9 +92,9 @@
+ my $usage =
+ qq{Usage: $0 [options] [--] [user@]host [command...]
+         --client=PATH        mosh client on local machine
+-                                (default: "mosh-client")
++                                (default: sibling native-history client)
+         --server=COMMAND     mosh server on remote machine
+-                                (default: "mosh-server")
++                                (default: "mosh-native-server")
+ 
+         --predict=adaptive      local echo for slower links [default]
+ -a      --predict=always        use local echo even on fast links
+@@ -402,7 +403,8 @@
+   if ( $use_remote_ip eq 'proxy' ) {
+     # Non-standard shells and broken shrc files cause the ssh
+     # proxy to break mysteriously.
+-    $ENV{ 'SHELL' } = '/bin/sh';
++    $ENV{ 'SHELL' } = (defined $ENV{'PREFIX'} && -x "$ENV{'PREFIX'}/bin/sh")
++      ? "$ENV{'PREFIX'}/bin/sh" : '/bin/sh';
+     my $quoted_proxy_command = shell_quote( $0, "--family=$family" );
+     push @sshopts, ( '-S', 'none', '-o', "ProxyCommand=$quoted_proxy_command --fake-proxy -- %h %p" );
+   }
+--- a/src/frontend/Makefile.am
++++ b/src/frontend/Makefile.am
+@@ -3,17 +3,17 @@
+ AM_LDFLAGS  = $(HARDEN_LDFLAGS) $(CODE_COVERAGE_LIBS)
+ LDADD = ../crypto/libmoshcrypto.a ../network/libmoshnetwork.a ../statesync/libmoshstatesync.a ../terminal/libmoshterminal.a ../util/libmoshutil.a ../protobufs/libmoshprotos.a -lm $(TINFO_LIBS) $(protobuf_LIBS) $(CRYPTO_LIBS)
+ 
+-mosh_server_LDADD = $(LDADD)
++mosh_native_server_LDADD = $(LDADD)
+ 
+ bin_PROGRAMS =
+ 
+ if BUILD_CLIENT
+-  bin_PROGRAMS += mosh-client
++  bin_PROGRAMS += mosh-native-client
+ endif
+ 
+ if BUILD_SERVER
+-  bin_PROGRAMS += mosh-server
++  bin_PROGRAMS += mosh-native-server
+ endif
+ 
+-mosh_client_SOURCES = mosh-client.cc stmclient.cc stmclient.h terminaloverlay.cc terminaloverlay.h
+-mosh_server_SOURCES = mosh-server.cc
++mosh_native_client_SOURCES = mosh-client.cc stmclient.cc stmclient.h terminaloverlay.cc terminaloverlay.h
++mosh_native_server_SOURCES = mosh-server.cc
+--- a/src/frontend/mosh-server.cc
++++ b/src/frontend/mosh-server.cc
+@@ -421,6 +421,7 @@
+ 
+   /* open parser and terminal */
+   Terminal::Complete terminal( window_size.ws_col, window_size.ws_row );
++  terminal.enable_history();
+ 
+   /* open network */
+   Network::UserStream blank;
+@@ -676,6 +677,7 @@
+   #endif
+ 
+   bool child_released = false;
++  bool host_eof = false;
+ 
+   while ( true ) {
+     try {
+@@ -711,7 +713,7 @@
+       assert( fd_list.size() == 1 ); /* servers don't hop */
+       int network_fd = fd_list.back();
+       sel.add_fd( network_fd );
+-      if ( !network.shutdown_in_progress() ) {
++      if ( !host_eof && !network.shutdown_in_progress() ) {
+ 	sel.add_fd( host_fd );
+       }
+ 
+@@ -736,6 +738,7 @@
+ 	  
+ 	  Network::UserStream us;
+ 	  us.apply_string( network.get_remote_diff() );
++          terminal.acknowledge_history(us.get_history_ack());
+ 	  /* apply userstream to terminal */
+ 	  for ( size_t i = 0; i < us.size(); i++ ) {
+ 	    const Parser::Action &action = us.get_action( i );
+@@ -829,7 +832,7 @@
+ 	}
+       }
+       
+-      if ( (!network.shutdown_in_progress()) && sel.read( host_fd ) ) {
++      if ( !host_eof && (!network.shutdown_in_progress()) && sel.read( host_fd ) ) {
+ 	/* input from the host needs to be fed to the terminal */
+ 	const int buf_size = 16384;
+ 	char buf[ buf_size ];
+@@ -840,7 +843,9 @@
+         /* If the pty slave is closed, reading from the master can fail with
+            EIO (see #264).  So we treat errors on read() like EOF. */
+         if ( bytes_read <= 0 ) {
+-	  network.start_shutdown();
++          host_eof = true;
++          terminal.finish_history();
++          network.set_current_state(terminal);
+ 	} else {
+ 	  terminal_to_host += terminal.act( string( buf, bytes_read ) );
+ 	
+@@ -850,10 +855,16 @@
+       }
+ 
+       /* write user input and terminal writeback to the host */
+-      if ( swrite( host_fd, terminal_to_host.c_str(), terminal_to_host.length() ) < 0 ) {
++      if ( !host_eof && swrite( host_fd, terminal_to_host.c_str(), terminal_to_host.length() ) < 0 ) {
+ 	network.start_shutdown();
+       }
+ 
++      // A finite command's final screen is replaceable, but its history is not.
++      // Keep draining until the terminal has acknowledged it. Explicit client
++      // shutdown and the existing network timeout still cancel the drain.
++      if (host_eof && terminal.get_history().records.empty() && !network.shutdown_in_progress())
++        network.start_shutdown();
++
+       bool idle_shutdown = false;
+       if ( network_timeout_ms &&
+ 	   network_timeout_ms <= time_since_remote_state ) {
+--- a/src/frontend/stmclient.cc
++++ b/src/frontend/stmclient.cc
+@@ -273,14 +273,31 @@
+   /* fetch target state */
+   new_state = network->get_latest_remote_state().state.get_fb();
+ 
++  string frame;
++  if (pending_history_scroll) {
++    char scroll[80];
++    snprintf(scroll, sizeof(scroll), "\033[0m\033[r\033[%dS", pending_history_scroll);
++    frame += scroll;
++  }
++  const Terminal::HistoryBatch &history = network->get_latest_remote_state().state.get_history();
++  const string historical = history_replay.prepare(history, window_size.ws_row);
++  if (!historical.empty()) {
++    frame += historical;
++    repaint_requested = true;
++  }
++
+   /* apply local overlays */
+   overlays.apply( new_state );
+ 
+   /* calculate minimal difference from where we are */
+-  const string diff( display.new_frame( !repaint_requested,
+-					local_framebuffer,
+-					new_state ) );
+-  swrite( STDOUT_FILENO, diff.data(), diff.size() );
++  frame += display.new_frame(!repaint_requested, local_framebuffer, new_state);
++  if (!frame.empty() && swrite(STDOUT_FILENO, frame.data(), frame.size()) < 0)
++    throw std::runtime_error("failed to write native terminal frame");
++  if (!historical.empty()) {
++    history_replay.commit(history);
++    network->get_current_state().acknowledge_history(history_replay.acknowledged());
++  }
++  pending_history_scroll = 0;
+ 
+   repaint_requested = false;
+ 
+@@ -399,20 +416,26 @@
+ 
+ bool STMClient::process_resize( void )
+ {
++  struct winsize observed;
+   /* get new size */
+-  if ( ioctl( STDIN_FILENO, TIOCGWINSZ, &window_size ) < 0 ) {
++  if ( ioctl( STDIN_FILENO, TIOCGWINSZ, &observed ) < 0 ) {
+     perror( "ioctl TIOCGWINSZ" );
+     return false;
+   }
+-  
+-  /* tell remote emulator */
+-  Parser::Resize res( window_size.ws_col, window_size.ws_row );
+-  
+-  if ( !network->shutdown_in_progress() ) {
+-    network->get_current_state().push_back( res );
++  if (observed.ws_col == window_size.ws_col && observed.ws_row == window_size.ws_row) return true;
++  if (!network->shutdown_in_progress())
++    network->get_current_state().push_back(Parser::Resize(observed.ws_col, observed.ws_row));
++
++  /* VTE and Termux pull scrollback into the viewport when it grows. Put
++     that prefix back with the eventual repaint, not during every animation step.
++     A subsequent shrink already archives that many rows on the terminal side. */
++  if (history_replay.acknowledged()) {
++    const int growth = static_cast<int>(observed.ws_row) - window_size.ws_row;
++    pending_history_scroll = static_cast<int>(std::min<uint64_t>(
++      std::max(0, pending_history_scroll + growth), history_replay.acknowledged()));
+   }
+-
+-  /* note remote emulator will probably reply with its own Resize to adjust our state */
++  window_size = observed;
++  repaint_requested = true;
+   
+   /* tell prediction engine */
+   overlays.get_prediction_engine().reset();
+@@ -577,4 +600,3 @@
+   }
+   return clean_shutdown;
+ }
+-
+--- a/src/frontend/stmclient.h
++++ b/src/frontend/stmclient.h
+@@ -65,6 +65,8 @@
+   typedef shared::shared_ptr< NetworkType > NetworkPointer;
+   NetworkPointer network;
+   Terminal::Display display;
++  Terminal::HistoryReplay history_replay;
++  int pending_history_scroll;
+ 
+   std::wstring connecting_notification;
+   bool repaint_requested, lf_entered, quit_sequence_started;
+@@ -98,7 +100,9 @@
+       new_state( 1, 1 ),
+       overlays(),
+       network(),
+-      display( true ), /* use TERM environment var to initialize display */
++      display( true, true ), /* the terminal owns scrolling, not copy mode */
++      history_replay(),
++      pending_history_scroll(0),
+       connecting_notification(),
+       repaint_requested( false ),
+       lf_entered( false ),
+--- a/src/network/network.h
++++ b/src/network/network.h
+@@ -49,7 +49,7 @@
+ using namespace Crypto;
+ 
+ namespace Network {
+-  static const unsigned int MOSH_PROTOCOL_VERSION = 2; /* bumped for echo-ack */
++  static const unsigned int MOSH_PROTOCOL_VERSION = 0x4e480001; /* native-history v1; not stock Mosh */
+ 
+   uint64_t timestamp( void );
+   uint16_t timestamp16( void );
+--- a/src/network/networktransport-impl.h
++++ b/src/network/networktransport-impl.h
+@@ -77,7 +77,7 @@
+     Instruction inst = fragments.get_assembly();
+ 
+     if ( inst.protocol_version() != MOSH_PROTOCOL_VERSION ) {
+-      throw NetworkException( "mosh protocol version mismatch", 0 );
++      throw NetworkException( "mosh-native protocol mismatch: both endpoints must use the native-history build", 0 );
+     }
+ 
+     sender.process_acknowledgment_through( inst.ack_num() );
+--- a/src/protobufs/hostinput.proto
++++ b/src/protobufs/hostinput.proto
+@@ -25,7 +25,13 @@
+   optional uint64 echo_ack_num = 8;
+ }
+ 
++message NativeHistory {
++  optional uint64 first = 1;
++  repeated bytes record = 2;
++}
++
+ extend Instruction {
++  optional NativeHistory native_history = 100;
+   optional HostBytes hostbytes = 2;
+   optional ResizeMessage resize = 3;
+   optional EchoAck echoack = 7;
+--- a/src/protobufs/userinput.proto
++++ b/src/protobufs/userinput.proto
+@@ -6,6 +6,7 @@
+ 
+ message UserMessage {
+   repeated Instruction instruction = 1;
++  optional uint64 history_ack = 100;
+ }
+ 
+ message Instruction {
+--- a/src/statesync/completeterminal.cc
++++ b/src/statesync/completeterminal.cc
+@@ -58,6 +58,7 @@
+     actions.clear();
+   }
+ 
++  refresh_history();
+   return terminal.read_octets_to_host();
+ }
+ 
+@@ -65,13 +66,50 @@
+ {
+   /* apply action to terminal */
+   act.act_on_terminal( &terminal );
++  refresh_history();
+   return terminal.read_octets_to_host();
+ }
+ 
++void Complete::enable_history(size_t bytes, size_t records)
++{
++  terminal.set_history_log(make_shared<HistoryLog>(bytes, records));
++  history_ack = 0;
++  refresh_history();
++}
++
++void Complete::refresh_history()
++{
++  shared_ptr<HistoryLog> log = terminal.get_fb().get_history_log();
++  if (log) history_batch = log->after(history_ack);
++}
++
++void Complete::acknowledge_history(uint64_t ack)
++{
++  // Never acknowledge future output. This cursor is separate from replaceable
++  // screen snapshots and moves only after the client has written the history.
++  if (ack > history_ack && ack <= history_batch.end()) {
++    history_ack = ack;
++    refresh_history();
++  }
++}
++
++void Complete::finish_history()
++{
++  shared_ptr<HistoryLog> log = terminal.get_fb().get_history_log();
++  if (log) log->break_line();
++  refresh_history();
++}
++
+ /* interface for Network::Transport */
+ string Complete::diff_from( const Complete &existing ) const
+ {
+   HostBuffers::HostMessage output;
++  if (!(history_batch == existing.history_batch)) {
++    NativeHistory *history = output.add_instruction()->MutableExtension(native_history);
++    history->set_first(history_batch.first);
++    for (size_t i = 0; i < history_batch.records.size(); ++i)
++      history->add_record(history_batch.records[i]);
++  }
+ 
+   if ( existing.get_echo_ack() != get_echo_ack() ) {
+     assert( get_echo_ack() >= existing.get_echo_ack() );
+@@ -107,7 +145,16 @@
+   fatal_assert( input.ParseFromString( diff ) );
+ 
+   for ( int i = 0; i < input.instruction_size(); i++ ) {
+-    if ( input.instruction( i ).HasExtension( hostbytes ) ) {
++    if (input.instruction(i).HasExtension(native_history)) {
++      const NativeHistory &history = input.instruction(i).GetExtension(native_history);
++      fatal_assert(history.has_first());
++      fatal_assert(history.record_size() <= static_cast<int>(HistoryBatch::MAX_RECORDS));
++      HistoryBatch batch;
++      batch.first = history.first();
++      for (int j = 0; j < history.record_size(); ++j) batch.records.push_back(history.record(j));
++      fatal_assert(batch.valid());
++      history_batch = batch;
++    } else if ( input.instruction( i ).HasExtension( hostbytes ) ) {
+       string terminal_to_host = act( input.instruction( i ).GetExtension( hostbytes ).hoststring() );
+       assert( terminal_to_host.empty() ); /* server never interrogates client terminal */
+     } else if ( input.instruction( i ).HasExtension( resize ) ) {
+@@ -124,7 +171,7 @@
+ bool Complete::operator==( Complete const &x ) const
+ {
+   //  assert( parser == x.parser ); /* parser state is irrelevant for us */
+-  return (terminal == x.terminal) && (echo_ack == x.echo_ack);
++  return (terminal == x.terminal) && (echo_ack == x.echo_ack) && (history_batch == x.history_batch);
+ }
+ 
+ bool Complete::set_echo_ack( uint64_t now )
+--- a/src/statesync/completeterminal.h
++++ b/src/statesync/completeterminal.h
+@@ -38,6 +38,7 @@
+ 
+ #include "parser.h"
+ #include "terminal.h"
++#include "nativehistory.h"
+ 
+ /* This class represents the complete terminal -- a UTF8Parser feeding Actions to an Emulator. */
+ 
+@@ -56,12 +57,15 @@
+     typedef std::list< std::pair<uint64_t, uint64_t> > input_history_type;
+     input_history_type input_history;
+     uint64_t echo_ack;
++    HistoryBatch history_batch;
++    uint64_t history_ack;
++    void refresh_history();
+ 
+     static const int ECHO_TIMEOUT = 50; /* for late ack */
+ 
+   public:
+     Complete( size_t width, size_t height ) : parser(), terminal( width, height ), display( false ),
+-					      actions(), input_history(), echo_ack( 0 ) {}
++						      actions(), input_history(), echo_ack( 0 ), history_batch(), history_ack(0) {}
+     
+     std::string act( const std::string &str );
+     std::string act( const Parser::Action &act );
+@@ -72,6 +76,10 @@
+     bool set_echo_ack( uint64_t now );
+     void register_input_frame( uint64_t n, uint64_t now );
+     int wait_time( uint64_t now ) const;
++    void enable_history(size_t bytes = 8 * 1024 * 1024, size_t records = 100000);
++    void acknowledge_history(uint64_t ack);
++    void finish_history();
++    const HistoryBatch &get_history() const { return history_batch; }
+ 
+     /* interface for Network::Transport */
+     void subtract( const Complete * ) const {}
+--- a/src/statesync/user.cc
++++ b/src/statesync/user.cc
+@@ -71,6 +71,7 @@
+   }
+ 
+   ClientBuffers::UserMessage output;
++  if (history_ack != existing.history_ack) output.set_history_ack(history_ack);
+ 
+   while ( my_it != actions.end() ) {
+     switch ( my_it->type ) {
+@@ -109,6 +110,7 @@
+ {
+   ClientBuffers::UserMessage input;
+   fatal_assert( input.ParseFromString( diff ) );
++  if (input.has_history_ack()) acknowledge_history(input.history_ack());
+ 
+   for ( int i = 0; i < input.instruction_size(); i++ ) {
+     if ( input.instruction( i ).HasExtension( keystroke ) ) {
+--- a/src/statesync/user.h
++++ b/src/statesync/user.h
+@@ -37,6 +37,7 @@
+ #include <list>
+ #include <string>
+ #include <assert.h>
++#include <stdint.h>
+ 
+ #include "parseraction.h"
+ 
+@@ -71,9 +72,12 @@
+   {
+   private:
+     deque<UserEvent> actions;
++    uint64_t history_ack;
+     
+   public:
+-    UserStream() : actions() {}
++    UserStream() : actions(), history_ack(0) {}
++    void acknowledge_history(uint64_t ack) { if (ack > history_ack) history_ack = ack; }
++    uint64_t get_history_ack() const { return history_ack; }
+     
+     void push_back( const Parser::UserByte & s_userbyte ) { actions.push_back( UserEvent( s_userbyte ) ); }
+     void push_back( const Parser::Resize & s_resize ) { actions.push_back( UserEvent( s_resize ) ); }
+@@ -87,7 +91,7 @@
+     string diff_from( const UserStream &existing ) const;
+     string init_diff( void ) const { return diff_from( UserStream() ); };
+     void apply_string( const string &diff );
+-    bool operator==( const UserStream &x ) const { return actions == x.actions; }
++    bool operator==( const UserStream &x ) const { return actions == x.actions && history_ack == x.history_ack; }
+ 
+     bool compare( const UserStream & ) { return false; }
+   };
+--- a/src/terminal/Makefile.am
++++ b/src/terminal/Makefile.am
+@@ -3,4 +3,4 @@
+ 
+ noinst_LIBRARIES = libmoshterminal.a
+ 
+-libmoshterminal_a_SOURCES = parseraction.cc parseraction.h parser.cc parser.h parserstate.cc parserstatefamily.h parserstate.h parsertransition.h terminal.cc terminaldispatcher.cc terminaldispatcher.h terminaldisplay.cc terminaldisplayinit.cc terminaldisplay.h terminalframebuffer.cc terminalframebuffer.h terminalfunctions.cc terminal.h terminaluserinput.cc terminaluserinput.h
++libmoshterminal_a_SOURCES = parseraction.cc parseraction.h parser.cc parser.h parserstate.cc parserstatefamily.h parserstate.h parsertransition.h terminal.cc terminaldispatcher.cc terminaldispatcher.h terminaldisplay.cc terminaldisplayinit.cc terminaldisplay.h terminalframebuffer.cc terminalframebuffer.h terminalfunctions.cc terminal.h terminaluserinput.cc terminaluserinput.h nativehistory.cc nativehistory.h
+--- a/src/terminal/nativehistory.cc
++++ b/src/terminal/nativehistory.cc
+@@ -0,0 +1,116 @@
++/* Native scrollback extension. GPL-3.0-or-later, with Mosh's OpenSSL exception. */
++#include "nativehistory.h"
++#include <algorithm>
++#include <limits>
++#include <stdexcept>
++#include <stdio.h>
++
++using namespace Terminal;
++
++bool HistoryBatch::valid() const
++{
++  if (records.size() > MAX_RECORDS || first > UINT64_MAX - records.size()) return false;
++  size_t bytes = 0;
++  for (size_t i = 0; i < records.size(); ++i) {
++    if (records[i].size() > MAX_RECORD) return false;
++    bytes += records[i].size();
++  }
++  return bytes <= MAX_BYTES || (records.size() == 1 && bytes <= MAX_RECORD);
++}
++
++void HistoryLog::finish_line()
++{
++  if (overlong) pending = "\033[0m[mosh-native: overlong history line omitted]";
++  pending += "\033[0m\r\n";
++  bytes += pending.size();
++  records.push_back(pending);
++  pending.clear();
++  overlong = false;
++  while (!records.empty() && (bytes > max_bytes || records.size() > max_records)) {
++    bytes -= records.front().size();
++    records.pop_front();
++    ++first;
++  }
++}
++
++void HistoryLog::break_line()
++{
++  if (!pending.empty() || overlong) finish_line();
++}
++
++void HistoryLog::append_row(const Row &row)
++{
++  const bool wrapped = row.get_wrap();
++  size_t limit = row.cells.size();
++  const Renditions plain(0);
++  if (!wrapped) {
++    while (limit && row.cells[limit - 1].is_blank()
++           && row.cells[limit - 1].get_renditions() == plain) --limit;
++  }
++  Renditions rendition(0);
++  std::string line("\033[0m");
++  for (size_t col = 0; col < limit && !overlong; col += row.cells[col].get_width()) {
++    const Cell &cell = row.cells[col];
++    if (!(cell.get_renditions() == rendition)) {
++      rendition = cell.get_renditions();
++      line += rendition.sgr();
++    }
++    cell.print_grapheme(line);
++    if (pending.size() + line.size() + 6 > HistoryBatch::MAX_RECORD) overlong = true;
++  }
++  if (pending.size() + line.size() + 6 > HistoryBatch::MAX_RECORD) overlong = true;
++  if (!overlong) pending += line;
++  if (!wrapped) finish_line();
++}
++
++HistoryBatch HistoryLog::after(uint64_t acknowledged) const
++{
++  HistoryBatch batch;
++  batch.first = std::max(first, std::min(acknowledged, end()));
++  size_t bytes = 0;
++  for (size_t i = batch.first - first; i < records.size(); ++i) {
++    if (!batch.records.empty()
++        && (bytes + records[i].size() > HistoryBatch::MAX_BYTES
++            || batch.records.size() == HistoryBatch::MAX_RECORDS)) break;
++    batch.records.push_back(records[i]);
++    bytes += records[i].size();
++  }
++  return batch;
++}
++
++std::string HistoryReplay::clear_viewport(int height)
++{
++  if (height < 1 || height > 10000) throw std::invalid_argument("invalid history viewport height");
++  std::string output("\033[0m\033[?6l\033[?7h\033[r");
++  char position[40];
++  // ED 2 archives the old viewport in VTE. Erase individual lines instead.
++  for (int row = 1; row <= height; ++row) {
++    snprintf(position, sizeof(position), "\033[%d;1H\033[2K", row);
++    output += position;
++  }
++  return output + "\033[H";
++}
++
++std::string HistoryReplay::prepare(const HistoryBatch &batch, int height) const
++{
++  if (!batch.valid()) throw std::invalid_argument("invalid native history batch");
++  if (batch.end() <= next) return "";
++  std::string output = clear_viewport(height);
++  if (batch.first > next) {
++    char notice[128];
++    snprintf(notice, sizeof(notice), "[mosh-native: %llu history records expired while disconnected]\r\n",
++             static_cast<unsigned long long>(batch.first - next));
++    output += notice;
++  }
++  for (size_t i = next > batch.first ? next - batch.first : 0; i < batch.records.size(); ++i)
++    output += batch.records[i];
++  output += "\033[0m";
++  for (int i = 1; i < height; ++i) output += "\r\n";
++  return output;
++}
++
++void HistoryReplay::commit(const HistoryBatch &batch)
++{
++  if (!batch.valid()) throw std::invalid_argument("invalid native history batch");
++  next = std::max(next, batch.end());
++}
+--- a/src/terminal/nativehistory.h
++++ b/src/terminal/nativehistory.h
+@@ -0,0 +1,58 @@
++/* Native scrollback extension. GPL-3.0-or-later, with Mosh's OpenSSL exception. */
++#ifndef MOSH_NATIVE_HISTORY_H
++#define MOSH_NATIVE_HISTORY_H
++
++#include <deque>
++#include <string>
++#include <vector>
++#include <stdint.h>
++#include "terminalframebuffer.h"
++
++namespace Terminal {
++  struct HistoryBatch {
++    static const size_t MAX_RECORD = 32768;
++    static const size_t MAX_BYTES = 8192;
++    static const size_t MAX_RECORDS = 128;
++    uint64_t first;
++    std::vector<std::string> records;
++
++    HistoryBatch() : first(0), records() {}
++    uint64_t end() const { return first + records.size(); }
++    bool valid() const;
++    bool operator==(const HistoryBatch &other) const {
++      return first == other.first && records == other.records;
++    }
++  };
++
++  // Shared only by server-side terminal snapshots. The batch in each snapshot
++  // is immutable; the bounded recorder itself is never synchronized or copied.
++  class HistoryLog {
++    std::deque<std::string> records;
++    uint64_t first;
++    size_t bytes, max_bytes, max_records;
++    std::string pending;
++    bool overlong;
++    void finish_line();
++  public:
++    HistoryLog(size_t byte_limit = 8 * 1024 * 1024, size_t record_limit = 100000)
++      : records(), first(0), bytes(0), max_bytes(byte_limit),
++        max_records(record_limit), pending(), overlong(false) {}
++    void append_row(const Row &row);
++    void break_line();
++    HistoryBatch after(uint64_t acknowledged) const;
++    uint64_t end() const { return first + records.size(); }
++    size_t retained_bytes() const { return bytes; }
++  };
++
++  class HistoryReplay {
++    uint64_t next;
++  public:
++    HistoryReplay() : next(0) {}
++    uint64_t acknowledged() const { return next; }
++    // Does not advance the acknowledgement until commit(), after stdout drains.
++    std::string prepare(const HistoryBatch &batch, int height) const;
++    void commit(const HistoryBatch &batch);
++    static std::string clear_viewport(int height);
++  };
++}
++#endif
+--- a/src/terminal/terminal.h
++++ b/src/terminal/terminal.h
+@@ -79,6 +79,7 @@
+     std::string read_octets_to_host( void );
+ 
+     const Framebuffer & get_fb( void ) const { return fb; }
++    void set_history_log(const shared_ptr<HistoryLog> &log) { fb.set_history_log(log); }
+ 
+     bool operator==( Emulator const &x ) const;
+   };
+--- a/src/terminal/terminaldisplay.cc
++++ b/src/terminal/terminaldisplay.cc
+@@ -138,7 +138,14 @@
+     frame.append( "\033[r" );
+ 
+     /* clear screen */
+-    frame.append( "\033[0m\033[H\033[2J" );
++    if (native_history) {
++      frame.append("\033[0m");
++      for (int row = 0; row < f.ds.get_height(); ++row) {
++        snprintf(tmp, sizeof(tmp), "\033[%d;1H\033[2K", row + 1);
++        frame.append(tmp);
++      }
++      frame.append("\033[H");
++    } else frame.append( "\033[0m\033[H\033[2J" );
+     initialized = false;
+     frame.cursor_x = frame.cursor_y = 0;
+     frame.current_rendition = initial_rendition();
+@@ -174,7 +181,7 @@
+   }
+ 
+   /* shortcut -- has display moved up by a certain number of lines? */
+-  if ( initialized ) {
++  if ( initialized && !native_history ) {
+     int lines_scrolled = 0;
+     int scroll_height = 0;
+ 
+--- a/src/terminal/terminaldisplay.h
++++ b/src/terminal/terminaldisplay.h
+@@ -71,6 +71,7 @@
+     bool has_title; /* supports window title and icon name */
+ 
+     const char *smcup, *rmcup; /* enter and exit alternate screen mode */
++    bool native_history;
+ 
+     bool put_row( bool initialized, FrameState &frame, const Framebuffer &f, int frame_y, const Row &old_row, bool wrap ) const;
+ 
+@@ -80,7 +81,7 @@
+ 
+     std::string new_frame( bool initialized, const Framebuffer &last, const Framebuffer &f ) const;
+ 
+-    Display( bool use_environment );
++    Display( bool use_environment, bool use_native_history = false );
+   };
+ }
+ 
+--- a/src/terminal/terminaldisplayinit.cc
++++ b/src/terminal/terminaldisplayinit.cc
+@@ -80,8 +80,8 @@
+   return val;
+ }
+ 
+-Display::Display( bool use_environment )
+-  : has_ech( true ), has_bce( true ), has_title( true ), smcup( NULL ), rmcup( NULL )
++Display::Display( bool use_environment, bool use_native_history )
++  : has_ech( true ), has_bce( true ), has_title( true ), smcup( NULL ), rmcup( NULL ), native_history(use_native_history)
+ {
+   if ( use_environment ) {
+     int errret = -2;
+@@ -131,7 +131,7 @@
+       }
+     }
+ 
+-    if ( !getenv( "MOSH_NO_TERM_INIT" ) ) {
++    if ( !native_history && !getenv( "MOSH_NO_TERM_INIT" ) ) {
+       smcup = ti_str("smcup");
+       rmcup = ti_str("rmcup");
+     }
+--- a/src/terminal/terminalframebuffer.cc
++++ b/src/terminal/terminalframebuffer.cc
+@@ -35,6 +35,7 @@
+ #include <stdlib.h>
+ 
+ #include "terminalframebuffer.h"
++#include "nativehistory.h"
+ 
+ using namespace Terminal;
+ 
+@@ -78,7 +79,7 @@
+ }
+ 
+ Framebuffer::Framebuffer( int s_width, int s_height )
+-  : rows(), icon_name(), window_title(), clipboard(), bell_count( 0 ), title_initialized( false ), ds( s_width, s_height )
++  : rows(), icon_name(), window_title(), clipboard(), bell_count( 0 ), title_initialized( false ), history_log(), ds( s_width, s_height ), alternate_screen(false)
+ {
+   assert( s_height > 0 );
+   assert( s_width > 0 );
+@@ -90,7 +91,7 @@
+ Framebuffer::Framebuffer( const Framebuffer &other )
+   : rows( other.rows ), icon_name( other.icon_name ), window_title( other.window_title ),
+     clipboard( other.clipboard ), bell_count( other.bell_count ),
+-    title_initialized( other.title_initialized ), ds( other.ds )
++    title_initialized( other.title_initialized ), history_log(other.history_log), ds( other.ds ), alternate_screen(other.alternate_screen)
+ {
+ }
+ 
+@@ -103,6 +104,8 @@
+     clipboard = other.clipboard;
+     bell_count = other.bell_count;
+     title_initialized = other.title_initialized;
++    history_log = other.history_log;
++    alternate_screen = other.alternate_screen;
+     ds = other.ds;
+   }
+   return *this;
+@@ -111,6 +114,11 @@
+ void Framebuffer::scroll( int N )
+ {
+   if ( N >= 0 ) {
++    if (history_log && !alternate_screen && ds.get_scrolling_region_top_row() == 0
++        && ds.get_scrolling_region_bottom_row() == ds.get_height() - 1) {
++      for (int i = 0; i < std::min(N, ds.get_height()); ++i)
++        history_log->append_row(*get_row(i));
++    }
+     delete_line( ds.get_scrolling_region_top_row(), N );
+   } else {
+     insert_line( ds.get_scrolling_region_top_row(), -N );
+@@ -379,6 +387,8 @@
+ 
+ void Framebuffer::reset( void )
+ {
++  if (history_log) history_log->break_line();
++  alternate_screen = false;
+   int width = ds.get_width(), height = ds.get_height();
+   ds = DrawState( width, height );
+   rows = rows_type( height, newrow() );
+--- a/src/terminal/terminalframebuffer.h
++++ b/src/terminal/terminalframebuffer.h
+@@ -47,6 +47,7 @@
+ /* Terminal framebuffer */
+ 
+ namespace Terminal {
++  class HistoryLog;
+   using shared::shared_ptr;
+   using shared::make_shared;
+   typedef uint32_t color_type;
+@@ -382,6 +383,7 @@
+     title_type clipboard;
+     unsigned int bell_count;
+     bool title_initialized; /* true if the window title has been set via an OSC */
++    shared_ptr<HistoryLog> history_log;
+ 
+     row_pointer newrow( void )
+     {
+@@ -395,6 +397,9 @@
+     Framebuffer( const Framebuffer &other );
+     Framebuffer &operator=( const Framebuffer &other );
+     DrawState ds;
++    bool alternate_screen;
++    void set_history_log(const shared_ptr<HistoryLog> &log) { history_log = log; }
++    shared_ptr<HistoryLog> get_history_log() const { return history_log; }
+ 
+     const rows_type &get_rows() const { return rows; }
+ 
+--- a/src/terminal/terminalfunctions.cc
++++ b/src/terminal/terminalfunctions.cc
+@@ -295,6 +295,10 @@
+     return &(fb->ds.auto_wrap_mode);
+   case 25:
+     return &(fb->ds.cursor_visible);
++  case 47:
++  case 1047:
++  case 1049:
++    return &(fb->alternate_screen);
+   case 1004:           /* xterm mouse focus event */
+     return &(fb->ds.mouse_focus_event);
+   case 1007:           /* xterm mouse alternate scroll */

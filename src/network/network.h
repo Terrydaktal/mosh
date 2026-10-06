@@ -49,7 +49,7 @@
 using namespace Crypto;
 
 namespace Network {
-  static const unsigned int MOSH_PROTOCOL_VERSION = 2; /* bumped for echo-ack */
+  static const unsigned int MOSH_PROTOCOL_VERSION = 0x4e480001; /* native-history v1; not stock Mosh */
 
   uint64_t timestamp( void );
   uint16_t timestamp16( void );
