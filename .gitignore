@@ -37,3 +37,18 @@ src/include/stamp-h1
 /VERSION
 /scripts/mosh
 src/include/version.h
+
+# Fork builds, private verification and installer artifacts
+/build/
+/artifacts/
+/.venv/
+/.pytest_cache/
+/.ruff_cache/
+__pycache__/
+*.pyc
+*.pyo
+.coverage
+.coverage.*
+/htmlcov/
+/dist/
+*.egg-info/
