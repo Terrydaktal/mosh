@@ -1,0 +1,188 @@
+Add the existing authenticated receive-time API to the native-history server.
+No history, screen, protobuf or wire-protocol changes.
+
+--- a/src/network/network.h
++++ b/src/network/network.h
+@@ -217,6 +217,7 @@
+     std::string port( void ) const;
+     string get_key( void ) const { return key.printable_key(); }
+     bool get_has_remote_addr( void ) const { return has_remote_addr; }
++    uint64_t get_last_heard( void ) const { return last_heard; }
+ 
+     uint64_t timeout( void ) const;
+     double get_SRTT( void ) const { return SRTT; }
+--- a/src/network/networktransport.h
++++ b/src/network/networktransport.h
+@@ -90,6 +90,7 @@
+     bool shutdown_acknowledged( void ) const { return sender.get_shutdown_acknowledged(); }
+     bool shutdown_ack_timed_out( void ) const { return sender.shutdown_ack_timed_out(); }
+     bool has_remote_addr( void ) const { return connection.get_has_remote_addr(); }
++    uint64_t get_last_heard( void ) const { return connection.get_last_heard(); }
+ 
+     /* Other side has requested shutdown and we have sent one ACK */
+     bool counterparty_shutdown_ack_sent( void ) const { return sender.get_counterparty_shutdown_acknowledged(); }
+--- a/src/frontend/mosh-server.cc
++++ b/src/frontend/mosh-server.cc
+@@ -94,6 +94,7 @@
+ #endif
+ 
+ #include "networktransport-impl.h"
++#include "server-status.h"
+ 
+ typedef Network::Transport< Terminal::Complete, Network::UserStream > ServerConnection;
+ 
+@@ -110,7 +111,7 @@
+ 
+ static void print_version( FILE *file )
+ {
+-  fputs( "mosh-server (" PACKAGE_STRING ") [build " BUILD_VERSION "]\n"
++  fputs( "mosh-server (" PACKAGE_STRING ") [build " BUILD_VERSION "] [rx-status1]\n"
+ 	 "Copyright 2012 Keith Winstein <mosh-devel@mit.edu>\n"
+ 	 "License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.\n"
+ 	 "This is free software: you are free to change and redistribute it.\n"
+@@ -658,6 +659,7 @@
+   sel.add_signal( SIGUSR1 );
+ 
+   uint64_t last_remote_num = network.get_remote_state_num();
++  ServerStatus status;
+ 
+   #ifdef HAVE_UTEMPTER
+   bool connected_utmp = false;
+@@ -713,6 +715,7 @@
+       assert( fd_list.size() == 1 ); /* servers don't hop */
+       int network_fd = fd_list.back();
+       sel.add_fd( network_fd );
++      if ( status.fd() >= 0 ) sel.add_fd( status.fd() );
+       if ( !host_eof && !network.shutdown_in_progress() ) {
+ 	sel.add_fd( host_fd );
+       }
+@@ -930,6 +933,9 @@
+       }
+ 
+       network.tick();
++      if ( status.fd() >= 0 && sel.read( status.fd() ) ) {
++        status.respond( network.get_last_heard() );
++      }
+     } catch ( const Network::NetworkException &e ) {
+       fprintf( stderr, "%s\n", e.what() );
+       spin();
+--- a/src/frontend/server-status.h
++++ b/src/frontend/server-status.h
+@@ -0,0 +1,117 @@
++#ifndef MOSH_SERVER_STATUS_H
++#define MOSH_SERVER_STATUS_H
++
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <string>
++#include <sys/stat.h>
++#include <sys/socket.h>
++#include <sys/un.h>
++#include <unistd.h>
++
++class ServerStatus {
++  int listener;
++  std::string path;
++  dev_t device;
++  ino_t inode;
++
++  static bool private_directory( const std::string &name )
++  {
++    struct stat info;
++    return lstat( name.c_str(), &info ) == 0
++      && S_ISDIR( info.st_mode ) && info.st_uid == getuid()
++      && (info.st_mode & 0077) == 0;
++  }
++
++public:
++  ServerStatus() : listener( -1 ), device( 0 ), inode( 0 )
++  {
++#ifdef __linux__
++    char user[32];
++    snprintf( user, sizeof user, "%lu", static_cast<unsigned long>( getuid() ) );
++    const char *runtime = getenv( "XDG_RUNTIME_DIR" );
++    std::string base = runtime && runtime[0] == '/' ? runtime : std::string( "/run/user/" ) + user;
++    std::string directory = private_directory( base )
++      ? base + "/mosh-status" : std::string( "/tmp/mosh-status-" ) + user;
++    mkdir( directory.c_str(), 0700 );
++    if ( !private_directory( directory ) ) return;
++
++    char pid[32];
++    snprintf( pid, sizeof pid, "%ld", static_cast<long>( getpid() ) );
++    std::string candidate = directory + "/" + pid + ".sock";
++    struct sockaddr_un address;
++    memset( &address, 0, sizeof address );
++    address.sun_family = AF_UNIX;
++    if ( candidate.size() >= sizeof address.sun_path ) return;
++    memcpy( address.sun_path, candidate.c_str(), candidate.size() + 1 );
++
++    listener = socket( AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0 );
++    if ( listener < 0 ) return;
++    if ( bind( listener, reinterpret_cast<struct sockaddr *>( &address ), sizeof address ) < 0 ) {
++      close( listener );
++      listener = -1;
++      return;
++    }
++    path = candidate;
++    struct stat info;
++    if ( lstat( path.c_str(), &info ) == 0 ) {
++      device = info.st_dev;
++      inode = info.st_ino;
++    }
++    if ( chmod( path.c_str(), 0600 ) < 0 || listen( listener, 8 ) < 0 ) {
++      close( listener );
++      listener = -1;
++    }
++#endif
++  }
++
++  ~ServerStatus()
++  {
++    if ( listener >= 0 ) close( listener );
++    struct stat info;
++    if ( !path.empty() && lstat( path.c_str(), &info ) == 0
++         && info.st_dev == device && info.st_ino == inode ) {
++      unlink( path.c_str() );
++    }
++  }
++
++  int fd() const { return listener; }
++
++  void respond( uint64_t last_heard ) const
++  {
++#ifdef __linux__
++    // One small reply per query. Packet receipt already maintains last_heard.
++    for ( int count = 0; count < 8; count++ ) {
++      int client = accept4( listener, NULL, NULL, SOCK_NONBLOCK | SOCK_CLOEXEC );
++      if ( client < 0 ) return;
++      struct ucred credentials;
++      socklen_t length = sizeof credentials;
++      if ( getsockopt( client, SOL_SOCKET, SO_PEERCRED, &credentials, &length ) == 0
++           && credentials.uid == getuid() ) {
++        char timestamp[32];
++        if ( last_heard == uint64_t( -1 ) ) {
++          strcpy( timestamp, "null" );
++        } else {
++          snprintf( timestamp, sizeof timestamp, "%llu", static_cast<unsigned long long>( last_heard ) );
++        }
++        char response[160];
++        int size = snprintf( response, sizeof response,
++          "{\"version\":1,\"pid\":%ld,\"last_rx_monotonic_ms\":%s}\n",
++          static_cast<long>( getpid() ), timestamp );
++        send( client, response, size, MSG_DONTWAIT | MSG_NOSIGNAL );
++      }
++      close( client );
++    }
++#else
++    (void)last_heard;
++#endif
++  }
++
++private:
++  ServerStatus( const ServerStatus & );
++  ServerStatus &operator=( const ServerStatus & );
++};
++
++#endif

@@ -37,6 +37,15 @@ The native client settles resize bursts for 120 ms, notices geometry changes eve
 before SIGWINCH is processed, and withholds remote frames for obsolete dimensions.
 The bounded debounce does not reinterpret ordinary input as resize events.
 
+## Authenticated Client Packet Age
+
+Both native-history and ordinary-wire-protocol servers expose the monotonic time
+of their last authenticated client packet through a local owner-restricted status
+socket. This is not keyboard idle or session-start time; no timestamp is invented
+before the first packet. Existing clients need no status protocol change. The
+compat/ patch/header and scripts/build-compat.sh build the ordinary profile,
+which is suitable for tmux-owned history. Status tests use private loopback peers.
+
 ## Upstream Ancestry
 
 This main branch starts at the upstream mosh-1.4.0 Git release, not an unrelated

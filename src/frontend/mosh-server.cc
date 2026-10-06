@@ -94,6 +94,7 @@
 #endif
 
 #include "networktransport-impl.h"
+#include "server-status.h"
 
 typedef Network::Transport< Terminal::Complete, Network::UserStream > ServerConnection;
 
@@ -110,7 +111,7 @@ static int run_server( const char *desired_ip, const char *desired_port,
 
 static void print_version( FILE *file )
 {
-  fputs( "mosh-server (" PACKAGE_STRING ") [build " BUILD_VERSION "]\n"
+  fputs( "mosh-server (" PACKAGE_STRING ") [build " BUILD_VERSION "] [rx-status1]\n"
 	 "Copyright 2012 Keith Winstein <mosh-devel@mit.edu>\n"
 	 "License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.\n"
 	 "This is free software: you are free to change and redistribute it.\n"
@@ -658,6 +659,7 @@ static void serve( int host_fd, Terminal::Complete &terminal, ServerConnection &
   sel.add_signal( SIGUSR1 );
 
   uint64_t last_remote_num = network.get_remote_state_num();
+  ServerStatus status;
 
   #ifdef HAVE_UTEMPTER
   bool connected_utmp = false;
@@ -713,6 +715,7 @@ static void serve( int host_fd, Terminal::Complete &terminal, ServerConnection &
       assert( fd_list.size() == 1 ); /* servers don't hop */
       int network_fd = fd_list.back();
       sel.add_fd( network_fd );
+      if ( status.fd() >= 0 ) sel.add_fd( status.fd() );
       if ( !host_eof && !network.shutdown_in_progress() ) {
 	sel.add_fd( host_fd );
       }
@@ -930,6 +933,9 @@ static void serve( int host_fd, Terminal::Complete &terminal, ServerConnection &
       }
 
       network.tick();
+      if ( status.fd() >= 0 && sel.read( status.fd() ) ) {
+        status.respond( network.get_last_heard() );
+      }
     } catch ( const Network::NetworkException &e ) {
       fprintf( stderr, "%s\n", e.what() );
       spin();

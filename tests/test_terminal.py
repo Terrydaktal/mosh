@@ -266,6 +266,27 @@ def test_finite_command_drains_history_before_exit(environment):
         session.close()
 
 
+def test_ordinary_mosh_path_remains_stock_wire_compatible(environment):
+    from loopback_harness import Session as OrdinarySession
+
+    session = OrdinarySession(
+        environment,
+        client=str(TMUX / "build/runtime/mosh-client"),
+        server=str(TMUX / "build/runtime/mosh-server"),
+        program=[sys.executable, str(ROOT / "tests/workload.py"), str(environment)],
+    )
+    try:
+        app = session.attachment
+        app.until(lambda state: b"READY" in state["screen"], timeout=8)
+        app.send(b"ordinary-mosh")
+        app.until(lambda state: (environment / "input.log").exists())
+        assert (
+            bytes.fromhex((environment / "input.log").read_text()) == b"ordinary-mosh"
+        )
+    finally:
+        session.close()
+
+
 def test_wrapper_resolves_its_own_client_outside_path(environment):
     script = BUILD / "scripts/mosh-native"
     result = subprocess.run(
