@@ -426,6 +426,7 @@ void Framebuffer::resize( int s_width, int s_height, bool complete_records, bool
     const Renditions plain(0);
     const int old_cursor_row = ds.get_cursor_row();
     const int old_cursor_col = ds.get_cursor_col() + (ds.next_print_will_wrap ? 1 : 0);
+    const bool termux = complete_records ? termux_reflow : reserve_blank;
     int last = oldheight - 1;
     while (last > old_cursor_row) {
       const Row &row = *get_row(last);
@@ -446,7 +447,13 @@ void Framebuffer::resize( int s_width, int s_height, bool complete_records, bool
       if (!source.get_wrap()) {
         while (limit && source.cells[limit - 1].is_blank()
                && source.cells[limit - 1].get_renditions() == plain) --limit;
-        if (row_number == old_cursor_row) limit = std::max(limit, old_cursor_col);
+        if (row_number == old_cursor_row) {
+          // Termux reflows the cursor's blank cell too. At an exact width
+          // boundary it occupies the next row, not a phantom EOL column.
+          const int cursor_cells = old_cursor_col
+            + (termux && oldwidth != s_width && !ds.next_print_will_wrap ? 1 : 0);
+          limit = std::max(limit, cursor_cells);
+        }
       }
       for (int col = 0; col < limit;) {
         const Cell &cell = source.cells[col];
@@ -484,7 +491,6 @@ void Framebuffer::resize( int s_width, int s_height, bool complete_records, bool
     assert(cursor_row >= 0);
     // VTE keeps the unused tail during width reflow; Termux discards it and
     // reserves one blank line after a non-bottom cursor instead.
-    const bool termux = complete_records ? termux_reflow : reserve_blank;
     if (oldwidth == s_width || !termux) {
       int tail = std::max(0, oldheight - last - 1 - std::max(0, oldheight - s_height));
       if (!termux && oldwidth != s_width) tail = std::max(0, tail - 1);

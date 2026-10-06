@@ -67,6 +67,13 @@ history prefix pulled into view. That prefix is restored before redraw instead o
 being erased by an inaccurate row estimate. Fragmented replies remain local;
 ordinary keys pass through and unsupported-terminal fallback is bounded.
 
+## Exact-Width Termux Cursor Boundaries
+
+The Termux width-reflow model includes the cursor blank cell when the prompt
+exactly fills the new width. Regressions check independently measured positions
+and output ordering at 20, 12, 8, 5, 3 and 2 columns. Native wire protocol and VTE
+model are unchanged. Termux's separate space-padding defect remains outstanding.
+
 ## Upstream Ancestry
 
 This main branch starts at the upstream mosh-1.4.0 Git release, not an unrelated

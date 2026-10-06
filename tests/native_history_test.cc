@@ -266,6 +266,22 @@ static void resize_cursor_queries()
   assert(!query.received());
 }
 
+static void cursor_boundary_resize()
+{
+  Complete original(152, 161);
+  original.enable_history();
+  original.act(lines(24) + "prompt> ");
+  for (int width : {2, 3, 5, 8, 12, 20}) {
+    Framebuffer reflowed(original.get_fb());
+    reflowed.set_history_log(shared::make_shared<HistoryLog>());
+    reflowed.resize(width, 6, false, true);
+    // Independently measured with the Google Play Termux emulator. The cursor
+    // reflows with its blank cell, including when prompt length % width == 0.
+    assert(reflowed.ds.get_cursor_row() == 4);
+    assert(reflowed.ds.get_cursor_col() == 8 % width);
+  }
+}
+
 int main()
 {
   std::setlocale(LC_ALL, "C.UTF-8");
@@ -276,5 +292,6 @@ int main()
   wrapped_resize();
   resize_history_spans_batches();
   resize_cursor_queries();
-  std::cout << "native history checks passed\n";
+  cursor_boundary_resize();
+  std::cout << "native history: transfer, loss, duplicate, bounds, wrap, modes, resize bursts, wide viewport conservation, multi-batch resize replay, bounded cursor-query input isolation, cursor-boundary reflow passed\n";
 }
