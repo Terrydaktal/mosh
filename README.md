@@ -46,6 +46,13 @@ before the first packet. Existing clients need no status protocol change. The
 compat/ patch/header and scripts/build-compat.sh build the ordinary profile,
 which is suitable for tmux-owned history. Status tests use private loopback peers.
 
+## Main-Screen Width Reflow
+
+Wrapped main-screen rows are joined and rewrapped at the new terminal width while
+preserving character content, styling and cursor position. Retained history tracks
+rows already archived locally so a later redraw need not replay them twice. Wide
+table regression cases remain tests; this does not promise all emulators agree.
+
 ## Upstream Ancestry
 
 This main branch starts at the upstream mosh-1.4.0 Git release, not an unrelated

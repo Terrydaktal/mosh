@@ -415,6 +415,83 @@ void Framebuffer::resize( int s_width, int s_height )
 
   int oldheight = ds.get_height();
   int oldwidth = ds.get_width();
+  if (history_log && !alternate_screen
+      && ds.get_scrolling_region_top_row() == 0
+      && ds.get_scrolling_region_bottom_row() == oldheight - 1) {
+    // Rewrap the main viewport before resizing; cropping loses printed output.
+    const Renditions plain(0);
+    const int old_cursor_row = ds.get_cursor_row();
+    const int old_cursor_col = ds.get_cursor_col() + (ds.next_print_will_wrap ? 1 : 0);
+    int last = oldheight - 1;
+    while (last > old_cursor_row) {
+      const Row &row = *get_row(last);
+      bool empty = !row.get_wrap();
+      for (int col = 0; empty && col < oldwidth; ++col)
+        empty = row.cells[col].is_blank() && row.cells[col].get_renditions() == plain;
+      if (!empty) break;
+      --last;
+    }
+
+    rows_type reflowed;
+    row_pointer current = make_shared<Row>(s_width, ds.get_background_rendition());
+    int column = 0, cursor_row = -1, cursor_col = 0;
+    bool cursor_wrap = false;
+    for (int row_number = 0; row_number <= last; ++row_number) {
+      const Row &source = *get_row(row_number);
+      int limit = oldwidth;
+      if (!source.get_wrap()) {
+        while (limit && source.cells[limit - 1].is_blank()
+               && source.cells[limit - 1].get_renditions() == plain) --limit;
+        if (row_number == old_cursor_row) limit = std::max(limit, old_cursor_col);
+      }
+      for (int col = 0; col < limit;) {
+        const Cell &cell = source.cells[col];
+        const int width = std::min<int>(cell.get_width(), s_width);
+        if (column + width > s_width) {
+          current->set_wrap(true);
+          reflowed.push_back(current);
+          current = make_shared<Row>(s_width, ds.get_background_rendition());
+          column = 0;
+        }
+        if (row_number == old_cursor_row && col <= old_cursor_col
+            && old_cursor_col < col + static_cast<int>(cell.get_width())) {
+          cursor_row = reflowed.size();
+          cursor_col = std::min(column + old_cursor_col - col, s_width - 1);
+        }
+        for (int part = 0; part < width; ++part) {
+          current->cells[column + part] = source.cells[col + part];
+          current->cells[column + part].set_wrap(false);
+        }
+        column += width;
+        col += cell.get_width();
+      }
+      if (row_number == old_cursor_row && old_cursor_col >= limit) {
+        cursor_row = reflowed.size();
+        cursor_col = std::min(column, s_width - 1);
+        cursor_wrap = column == s_width;
+      }
+      if (!source.get_wrap()) {
+        reflowed.push_back(current);
+        current = make_shared<Row>(s_width, ds.get_background_rendition());
+        column = 0;
+      }
+    }
+    if (column) reflowed.push_back(current);
+    assert(cursor_row >= 0);
+
+    size_t archived = reflowed.size() > static_cast<size_t>(s_height)
+      ? reflowed.size() - s_height : 0;
+    for (size_t row = 0; row < archived; ++row) history_log->append_row(*reflowed[row]);
+    if (archived && reflowed[archived - 1]->get_wrap()) history_log->break_line();
+    reflowed.erase(reflowed.begin(), reflowed.begin() + archived);
+    ds.resize(s_width, s_height);
+    reflowed.resize(s_height, make_shared<Row>(s_width, ds.get_background_rendition()));
+    rows.swap(reflowed);
+    ds.move_row(std::max(0, cursor_row - static_cast<int>(archived)));
+    ds.move_col(cursor_col);
+    ds.next_print_will_wrap = cursor_wrap;
+    return;
+  }
   ds.resize( s_width, s_height );
 
   row_pointer blankrow( newrow());

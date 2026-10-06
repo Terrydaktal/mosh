@@ -46,12 +46,21 @@ namespace Terminal {
 
   class HistoryReplay {
     uint64_t next;
+    std::deque<std::string> delivered;
+    std::vector<std::string> preserved;
+    size_t delivered_bytes;
+    int cached_width;
+    uint64_t cached_rows;
+    size_t preserved_count(const HistoryBatch &batch) const;
   public:
-    HistoryReplay() : next(0) {}
+    HistoryReplay() : next(0), delivered(), preserved(), delivered_bytes(0),
+      cached_width(0), cached_rows(0) {}
     uint64_t acknowledged() const { return next; }
     // Does not advance the acknowledgement until commit(), after stdout drains.
     std::string prepare(const HistoryBatch &batch, int height) const;
     void commit(const HistoryBatch &batch);
+    void remember_resize(const Framebuffer &before, int width, int height);
+    uint64_t rows_at_width(int width);
     static std::string clear_viewport(int height);
   };
 }

@@ -1,0 +1,253 @@
+Preserve wide main-screen output and cursor across native Mosh resizes.
+Avoid replaying rows archived by the local terminal and count wrapped history.
+Ordinary Mosh/tmux and the native wire protocol are unchanged.
+
+--- a/configure.ac
++++ b/configure.ac
+@@ -2,7 +2,7 @@
+ # Process this file with autoconf to produce a configure script.
+ 
+ AC_PREREQ([2.61])
+-AC_INIT([mosh-native], [1.4.0-native2], [mosh-devel@mit.edu])
++AC_INIT([mosh-native], [1.4.0-native3], [mosh-devel@mit.edu])
+ AM_INIT_AUTOMAKE([foreign std-options -Wall -Werror -Wno-portability])
+ m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
+ AC_CONFIG_SRCDIR([src/frontend/mosh-client.cc])
+--- a/src/terminal/terminalframebuffer.cc
++++ b/src/terminal/terminalframebuffer.cc
+@@ -415,6 +415,83 @@
+ 
+   int oldheight = ds.get_height();
+   int oldwidth = ds.get_width();
++  if (history_log && !alternate_screen
++      && ds.get_scrolling_region_top_row() == 0
++      && ds.get_scrolling_region_bottom_row() == oldheight - 1) {
++    // Rewrap the main viewport before resizing; cropping loses printed output.
++    const Renditions plain(0);
++    const int old_cursor_row = ds.get_cursor_row();
++    const int old_cursor_col = ds.get_cursor_col() + (ds.next_print_will_wrap ? 1 : 0);
++    int last = oldheight - 1;
++    while (last > old_cursor_row) {
++      const Row &row = *get_row(last);
++      bool empty = !row.get_wrap();
++      for (int col = 0; empty && col < oldwidth; ++col)
++        empty = row.cells[col].is_blank() && row.cells[col].get_renditions() == plain;
++      if (!empty) break;
++      --last;
++    }
++
++    rows_type reflowed;
++    row_pointer current = make_shared<Row>(s_width, ds.get_background_rendition());
++    int column = 0, cursor_row = -1, cursor_col = 0;
++    bool cursor_wrap = false;
++    for (int row_number = 0; row_number <= last; ++row_number) {
++      const Row &source = *get_row(row_number);
++      int limit = oldwidth;
++      if (!source.get_wrap()) {
++        while (limit && source.cells[limit - 1].is_blank()
++               && source.cells[limit - 1].get_renditions() == plain) --limit;
++        if (row_number == old_cursor_row) limit = std::max(limit, old_cursor_col);
++      }
++      for (int col = 0; col < limit;) {
++        const Cell &cell = source.cells[col];
++        const int width = std::min<int>(cell.get_width(), s_width);
++        if (column + width > s_width) {
++          current->set_wrap(true);
++          reflowed.push_back(current);
++          current = make_shared<Row>(s_width, ds.get_background_rendition());
++          column = 0;
++        }
++        if (row_number == old_cursor_row && col <= old_cursor_col
++            && old_cursor_col < col + static_cast<int>(cell.get_width())) {
++          cursor_row = reflowed.size();
++          cursor_col = std::min(column + old_cursor_col - col, s_width - 1);
++        }
++        for (int part = 0; part < width; ++part) {
++          current->cells[column + part] = source.cells[col + part];
++          current->cells[column + part].set_wrap(false);
++        }
++        column += width;
++        col += cell.get_width();
++      }
++      if (row_number == old_cursor_row && old_cursor_col >= limit) {
++        cursor_row = reflowed.size();
++        cursor_col = std::min(column, s_width - 1);
++        cursor_wrap = column == s_width;
++      }
++      if (!source.get_wrap()) {
++        reflowed.push_back(current);
++        current = make_shared<Row>(s_width, ds.get_background_rendition());
++        column = 0;
++      }
++    }
++    if (column) reflowed.push_back(current);
++    assert(cursor_row >= 0);
++
++    size_t archived = reflowed.size() > static_cast<size_t>(s_height)
++      ? reflowed.size() - s_height : 0;
++    for (size_t row = 0; row < archived; ++row) history_log->append_row(*reflowed[row]);
++    if (archived && reflowed[archived - 1]->get_wrap()) history_log->break_line();
++    reflowed.erase(reflowed.begin(), reflowed.begin() + archived);
++    ds.resize(s_width, s_height);
++    reflowed.resize(s_height, make_shared<Row>(s_width, ds.get_background_rendition()));
++    rows.swap(reflowed);
++    ds.move_row(std::max(0, cursor_row - static_cast<int>(archived)));
++    ds.move_col(cursor_col);
++    ds.next_print_will_wrap = cursor_wrap;
++    return;
++  }
+   ds.resize( s_width, s_height );
+ 
+   row_pointer blankrow( newrow());
+--- a/src/terminal/nativehistory.cc
++++ b/src/terminal/nativehistory.cc
+@@ -4,6 +4,7 @@
+ #include <limits>
+ #include <stdexcept>
+ #include <stdio.h>
++#include <cwchar>
+ 
+ using namespace Terminal;
+ 
+@@ -95,15 +96,18 @@
+ {
+   if (!batch.valid()) throw std::invalid_argument("invalid native history batch");
+   if (batch.end() <= next) return "";
+-  std::string output = clear_viewport(height);
++  std::string output;
+   if (batch.first > next) {
+     char notice[128];
+     snprintf(notice, sizeof(notice), "[mosh-native: %llu history records expired while disconnected]\r\n",
+              static_cast<unsigned long long>(batch.first - next));
+     output += notice;
+   }
+-  for (size_t i = next > batch.first ? next - batch.first : 0; i < batch.records.size(); ++i)
++  const size_t start = next > batch.first ? next - batch.first : 0;
++  for (size_t i = start + preserved_count(batch); i < batch.records.size(); ++i)
+     output += batch.records[i];
++  if (output.empty()) return "";
++  output = clear_viewport(height) + output;
+   output += "\033[0m";
+   for (int i = 1; i < height; ++i) output += "\r\n";
+   return output;
+@@ -112,5 +116,73 @@
+ void HistoryReplay::commit(const HistoryBatch &batch)
+ {
+   if (!batch.valid()) throw std::invalid_argument("invalid native history batch");
++  if (batch.end() <= next) return;
++  const size_t start = next > batch.first ? next - batch.first : 0;
++  const size_t kept = preserved_count(batch);
++  preserved.erase(preserved.begin(), preserved.begin() + kept);
++  if (start + kept < batch.records.size()) preserved.clear();
++  for (size_t i = start; i < batch.records.size(); ++i) {
++    delivered.push_back(batch.records[i]);
++    delivered_bytes += batch.records[i].size();
++  }
++  while (!delivered.empty() && (delivered_bytes > 8 * 1024 * 1024 || delivered.size() > 100000)) {
++    delivered_bytes -= delivered.front().size();
++    delivered.pop_front();
++  }
++  cached_width = 0;
+   next = std::max(next, batch.end());
+ }
++
++size_t HistoryReplay::preserved_count(const HistoryBatch &batch) const
++{
++  if (batch.first > next) return 0;
++  const size_t start = next > batch.first ? next - batch.first : 0;
++  size_t count = 0;
++  while (count < preserved.size() && start + count < batch.records.size()
++         && preserved[count] == batch.records[start + count]) ++count;
++  return count;
++}
++
++void HistoryReplay::remember_resize(const Framebuffer &before, int width, int height)
++{
++  // Real terminals already archive the displaced main-screen prefix on resize.
++  Framebuffer reflowed(before);
++  shared_ptr<HistoryLog> log = make_shared<HistoryLog>();
++  reflowed.set_history_log(log);
++  reflowed.resize(width, height);
++  log->break_line();
++  preserved = log->after(0).records;
++}
++
++uint64_t HistoryReplay::rows_at_width(int width)
++{
++  if (width < 1) throw std::invalid_argument("invalid history width");
++  if (cached_width == width) return cached_rows;
++  uint64_t rows = 0;
++  for (const std::string &record : delivered) {
++    int column = 0;
++    mbstate_t state = mbstate_t();
++    for (size_t i = 0; i < record.size();) {
++      if (record[i] == '\033' && i + 1 < record.size() && record[i + 1] == '[') {
++        i += 2;
++        while (i < record.size() && !(record[i] >= '@' && record[i] <= '~')) ++i;
++        if (i < record.size()) ++i;
++        continue;
++      }
++      if (record[i] == '\r') { ++i; continue; }
++      if (record[i] == '\n') { ++rows; column = 0; ++i; continue; }
++      wchar_t character;
++      size_t length = mbrtowc(&character, record.data() + i, record.size() - i, &state);
++      if (length == size_t(-1) || length == size_t(-2)) {
++        state = mbstate_t(); character = L'?'; length = 1;
++      } else if (!length) length = 1;
++      int cells = std::max(0, wcwidth(character));
++      if (column && column + cells > width) { ++rows; column = 0; }
++      column += cells;
++      i += length;
++    }
++    if (column) ++rows;
++  }
++  cached_width = width;
++  return cached_rows = rows;
++}
+--- a/src/terminal/nativehistory.h
++++ b/src/terminal/nativehistory.h
+@@ -46,12 +46,21 @@
+ 
+   class HistoryReplay {
+     uint64_t next;
++    std::deque<std::string> delivered;
++    std::vector<std::string> preserved;
++    size_t delivered_bytes;
++    int cached_width;
++    uint64_t cached_rows;
++    size_t preserved_count(const HistoryBatch &batch) const;
+   public:
+-    HistoryReplay() : next(0) {}
++    HistoryReplay() : next(0), delivered(), preserved(), delivered_bytes(0),
++      cached_width(0), cached_rows(0) {}
+     uint64_t acknowledged() const { return next; }
+     // Does not advance the acknowledgement until commit(), after stdout drains.
+     std::string prepare(const HistoryBatch &batch, int height) const;
+     void commit(const HistoryBatch &batch);
++    void remember_resize(const Framebuffer &before, int width, int height);
++    uint64_t rows_at_width(int width);
+     static std::string clear_viewport(int height);
+   };
+ }
+--- a/src/frontend/stmclient.cc
++++ b/src/frontend/stmclient.cc
+@@ -313,7 +313,7 @@
+   frame += display.new_frame(!repaint_requested, local_framebuffer, new_state);
+   if (!frame.empty() && swrite(STDOUT_FILENO, frame.data(), frame.size()) < 0)
+     throw std::runtime_error("failed to write native terminal frame");
+-  if (!historical.empty()) {
++  if (history.end() > history_replay.acknowledged()) {
+     history_replay.commit(history);
+     network->get_current_state().acknowledge_history(history_replay.acknowledged());
+   }
+@@ -450,8 +450,9 @@
+   if (history_replay.acknowledged()) {
+     const int growth = static_cast<int>(observed.ws_row) - window_size.ws_row;
+     pending_history_scroll = static_cast<int>(std::min<uint64_t>(
+-      std::max(0, pending_history_scroll + growth), history_replay.acknowledged()));
++      std::max(0, pending_history_scroll + growth), history_replay.rows_at_width(observed.ws_col)));
+   }
++  history_replay.remember_resize(local_framebuffer, observed.ws_col, observed.ws_row);
+   window_size = observed;
+   repaint_requested = true;
+   

@@ -313,7 +313,7 @@ void STMClient::output_new_frame( void )
   frame += display.new_frame(!repaint_requested, local_framebuffer, new_state);
   if (!frame.empty() && swrite(STDOUT_FILENO, frame.data(), frame.size()) < 0)
     throw std::runtime_error("failed to write native terminal frame");
-  if (!historical.empty()) {
+  if (history.end() > history_replay.acknowledged()) {
     history_replay.commit(history);
     network->get_current_state().acknowledge_history(history_replay.acknowledged());
   }
@@ -450,8 +450,9 @@ bool STMClient::process_resize( void )
   if (history_replay.acknowledged()) {
     const int growth = static_cast<int>(observed.ws_row) - window_size.ws_row;
     pending_history_scroll = static_cast<int>(std::min<uint64_t>(
-      std::max(0, pending_history_scroll + growth), history_replay.acknowledged()));
+      std::max(0, pending_history_scroll + growth), history_replay.rows_at_width(observed.ws_col)));
   }
+  history_replay.remember_resize(local_framebuffer, observed.ws_col, observed.ws_row);
   window_size = observed;
   repaint_requested = true;
   

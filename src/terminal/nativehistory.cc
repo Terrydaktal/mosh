@@ -4,6 +4,7 @@
 #include <limits>
 #include <stdexcept>
 #include <stdio.h>
+#include <cwchar>
 
 using namespace Terminal;
 
@@ -95,15 +96,18 @@ std::string HistoryReplay::prepare(const HistoryBatch &batch, int height) const
 {
   if (!batch.valid()) throw std::invalid_argument("invalid native history batch");
   if (batch.end() <= next) return "";
-  std::string output = clear_viewport(height);
+  std::string output;
   if (batch.first > next) {
     char notice[128];
     snprintf(notice, sizeof(notice), "[mosh-native: %llu history records expired while disconnected]\r\n",
              static_cast<unsigned long long>(batch.first - next));
     output += notice;
   }
-  for (size_t i = next > batch.first ? next - batch.first : 0; i < batch.records.size(); ++i)
+  const size_t start = next > batch.first ? next - batch.first : 0;
+  for (size_t i = start + preserved_count(batch); i < batch.records.size(); ++i)
     output += batch.records[i];
+  if (output.empty()) return "";
+  output = clear_viewport(height) + output;
   output += "\033[0m";
   for (int i = 1; i < height; ++i) output += "\r\n";
   return output;
@@ -112,5 +116,73 @@ std::string HistoryReplay::prepare(const HistoryBatch &batch, int height) const
 void HistoryReplay::commit(const HistoryBatch &batch)
 {
   if (!batch.valid()) throw std::invalid_argument("invalid native history batch");
+  if (batch.end() <= next) return;
+  const size_t start = next > batch.first ? next - batch.first : 0;
+  const size_t kept = preserved_count(batch);
+  preserved.erase(preserved.begin(), preserved.begin() + kept);
+  if (start + kept < batch.records.size()) preserved.clear();
+  for (size_t i = start; i < batch.records.size(); ++i) {
+    delivered.push_back(batch.records[i]);
+    delivered_bytes += batch.records[i].size();
+  }
+  while (!delivered.empty() && (delivered_bytes > 8 * 1024 * 1024 || delivered.size() > 100000)) {
+    delivered_bytes -= delivered.front().size();
+    delivered.pop_front();
+  }
+  cached_width = 0;
   next = std::max(next, batch.end());
+}
+
+size_t HistoryReplay::preserved_count(const HistoryBatch &batch) const
+{
+  if (batch.first > next) return 0;
+  const size_t start = next > batch.first ? next - batch.first : 0;
+  size_t count = 0;
+  while (count < preserved.size() && start + count < batch.records.size()
+         && preserved[count] == batch.records[start + count]) ++count;
+  return count;
+}
+
+void HistoryReplay::remember_resize(const Framebuffer &before, int width, int height)
+{
+  // Real terminals already archive the displaced main-screen prefix on resize.
+  Framebuffer reflowed(before);
+  shared_ptr<HistoryLog> log = make_shared<HistoryLog>();
+  reflowed.set_history_log(log);
+  reflowed.resize(width, height);
+  log->break_line();
+  preserved = log->after(0).records;
+}
+
+uint64_t HistoryReplay::rows_at_width(int width)
+{
+  if (width < 1) throw std::invalid_argument("invalid history width");
+  if (cached_width == width) return cached_rows;
+  uint64_t rows = 0;
+  for (const std::string &record : delivered) {
+    int column = 0;
+    mbstate_t state = mbstate_t();
+    for (size_t i = 0; i < record.size();) {
+      if (record[i] == '\033' && i + 1 < record.size() && record[i + 1] == '[') {
+        i += 2;
+        while (i < record.size() && !(record[i] >= '@' && record[i] <= '~')) ++i;
+        if (i < record.size()) ++i;
+        continue;
+      }
+      if (record[i] == '\r') { ++i; continue; }
+      if (record[i] == '\n') { ++rows; column = 0; ++i; continue; }
+      wchar_t character;
+      size_t length = mbrtowc(&character, record.data() + i, record.size() - i, &state);
+      if (length == size_t(-1) || length == size_t(-2)) {
+        state = mbstate_t(); character = L'?'; length = 1;
+      } else if (!length) length = 1;
+      int cells = std::max(0, wcwidth(character));
+      if (column && column + cells > width) { ++rows; column = 0; }
+      column += cells;
+      i += length;
+    }
+    if (column) ++rows;
+  }
+  cached_width = width;
+  return cached_rows = rows;
 }

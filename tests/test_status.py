@@ -25,7 +25,7 @@ from test_terminal import (
 
 def test_server_advertises_receive_status_without_changing_history_protocol():
     result = subprocess.run([SERVER, "--version"], capture_output=True, check=True)
-    assert b"1.4.0-native2" in result.stdout
+    assert b"1.4.0-native3" in result.stdout
     assert b"[rx-status1]" in result.stdout
 
 

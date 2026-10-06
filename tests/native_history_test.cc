@@ -136,6 +136,55 @@ static void resize_bursts()
   assert(!resize.ready(619) && resize.ready(620));
 }
 
+static std::string compact_contents(const Complete &terminal)
+{
+  std::string text;
+  for (const auto &record : terminal.get_history().records) text += record;
+  const Framebuffer &fb = terminal.get_fb();
+  for (int row = 0; row < fb.ds.get_height(); ++row)
+    for (int col = 0; col < fb.ds.get_width(); col += fb.get_cell(row, col)->get_width())
+      fb.get_cell(row, col)->print_grapheme(text);
+  std::string compact;
+  for (size_t i = 0; i < text.size(); ++i) {
+    if (text[i] == '\033' && i + 1 < text.size() && text[i + 1] == '[') {
+      i += 2;
+      while (i < text.size() && !(text[i] >= '@' && text[i] <= '~')) ++i;
+    } else if (!std::isspace(static_cast<unsigned char>(text[i]))) compact += text[i];
+  }
+  return compact;
+}
+
+static void wrapped_resize()
+{
+  Complete terminal(93, 71);
+  terminal.enable_history();
+  std::string output("header\r\n\033[31m");
+  for (int row = 0; row < 18; ++row)
+    output += "row-" + std::to_string(row) + std::string(170, char('a' + row))
+      + "\xe7\xba\xa2\xe9\xad\x94-end\r\n";
+  output += "\033[0mprompt> ";
+  terminal.act(output);
+  const std::string before = compact_contents(terminal);
+  for (const auto &size : {std::pair<int, int>(61, 38), {93, 20}, {93, 71},
+                           {51, 85}, {81, 85}, {93, 71}}) {
+    terminal.act(Parser::Resize(size.first, size.second));
+    assert(compact_contents(terminal) == before);
+  }
+  terminal.act("typed-after-zoom");
+  assert(compact_contents(terminal) == before + "typed-after-zoom");
+
+  HistoryReplay replay;
+  replay.remember_resize(terminal.get_fb(), 93, 20);
+  terminal.act(Parser::Resize(93, 20));
+  const HistoryBatch first = terminal.get_history();
+  replay.prepare(first, 20);
+  replay.commit(first);
+  assert(replay.prepare(first, 20).empty());
+  const uint64_t wider = replay.rows_at_width(93);
+  assert(replay.rows_at_width(51) >= wider);
+  assert(replay.rows_at_width(93) == wider);
+}
+
 int main()
 {
   std::setlocale(LC_ALL, "C.UTF-8");
@@ -143,5 +192,6 @@ int main()
   bounds();
   modes();
   resize_bursts();
+  wrapped_resize();
   std::cout << "native history checks passed\n";
 }
