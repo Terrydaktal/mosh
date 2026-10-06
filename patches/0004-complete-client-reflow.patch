@@ -1,0 +1,281 @@
+Complete terminal-specific native3 reflow and preserve every local resize-history batch.
+Retain the launchers terminal-model setting and every bounded local archive batch.
+Bump native4; ordinary Mosh and the native protocol remain unchanged.
+
+--- a/configure.ac
++++ b/configure.ac
+@@ -2,7 +2,7 @@
+ # Process this file with autoconf to produce a configure script.
+ 
+ AC_PREREQ([2.61])
+-AC_INIT([mosh-native], [1.4.0-native3], [mosh-devel@mit.edu])
++AC_INIT([mosh-native], [1.4.0-native4], [mosh-devel@mit.edu])
+ AM_INIT_AUTOMAKE([foreign std-options -Wall -Werror -Wno-portability])
+ m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
+ AC_CONFIG_SRCDIR([src/frontend/mosh-client.cc])
+--- a/scripts/mosh.pl
++++ b/scripts/mosh.pl
+@@ -376,6 +376,10 @@
+     }
+   }
+   my @server = ( 'new' );
++  # The remote emulator must use the same resize policy as the local terminal.
++  my $termux_reflow = exists $ENV{'TERMUX_VERSION'}
++    || (defined $ENV{'PREFIX'} && $ENV{'PREFIX'} =~ m{/com\.termux/files/usr$});
++  my $server_command = 'env MOSH_NATIVE_TERMUX=' . ($termux_reflow ? '1 ' : '0 ') . $server;
+ 
+   push @server, ( '-c', $colors );
+ 
+@@ -397,7 +401,7 @@
+     delete $ENV{ 'SSH_CONNECTION' };
+     chdir; # $HOME
+     print "MOSH IP ${userhost}\n";
+-    exec( "$server " . shell_quote( @server ) );
++    exec( "$server_command " . shell_quote( @server ) );
+     die "Cannot exec $server: $!\n";
+   }
+   if ( $use_remote_ip eq 'proxy' ) {
+@@ -408,7 +412,7 @@
+     my $quoted_proxy_command = shell_quote( $0, "--family=$family" );
+     push @sshopts, ( '-S', 'none', '-o', "ProxyCommand=$quoted_proxy_command --fake-proxy -- %h %p" );
+   }
+-  my @exec_argv = ( @ssh, @sshopts, $userhost, '--', $ssh_connection . "$server " . shell_quote( @server ) );
++  my @exec_argv = ( @ssh, @sshopts, $userhost, '--', $ssh_connection . "$server_command " . shell_quote( @server ) );
+   exec @exec_argv;
+   die "Cannot exec ssh: $!\n";
+ } else { # parent
+--- a/src/frontend/stmclient.cc
++++ b/src/frontend/stmclient.cc
+@@ -448,9 +448,8 @@
+      that prefix back with the eventual repaint, not during every animation step.
+      A subsequent shrink already archives that many rows on the terminal side. */
+   if (history_replay.acknowledged()) {
+-    const int growth = static_cast<int>(observed.ws_row) - window_size.ws_row;
+-    pending_history_scroll = static_cast<int>(std::min<uint64_t>(
+-      std::max(0, pending_history_scroll + growth), history_replay.rows_at_width(observed.ws_col)));
++    pending_history_scroll = history_replay.pulled_rows(
++      local_framebuffer, observed.ws_col, observed.ws_row);
+   }
+   history_replay.remember_resize(local_framebuffer, observed.ws_col, observed.ws_row);
+   window_size = observed;
+--- a/src/frontend/stmclient.h
++++ b/src/frontend/stmclient.h
+@@ -103,7 +103,8 @@
+       overlays(),
+       network(),
+       display( true, true ), /* the terminal owns scrolling, not copy mode */
+-      history_replay(),
++      history_replay(getenv("TERMUX_VERSION") != NULL
++        || (getenv("PREFIX") != NULL && strstr(getenv("PREFIX"), "/com.termux/files/usr") != NULL)),
+       resize_debouncer(),
+       pending_history_scroll(0),
+       connecting_notification(),
+--- a/src/terminal/nativehistory.cc
++++ b/src/terminal/nativehistory.cc
+@@ -104,8 +104,9 @@
+     output += notice;
+   }
+   const size_t start = next > batch.first ? next - batch.first : 0;
+-  for (size_t i = start + preserved_count(batch); i < batch.records.size(); ++i)
+-    output += batch.records[i];
++  const size_t skipped = start + preserved_count(batch);
++  for (size_t i = skipped; i < batch.records.size(); ++i)
++    output += batch.records[i].substr(i == skipped ? preserved_bytes(batch) : 0);
+   if (output.empty()) return "";
+   output = clear_viewport(height) + output;
+   output += "\033[0m";
+@@ -119,8 +120,12 @@
+   if (batch.end() <= next) return;
+   const size_t start = next > batch.first ? next - batch.first : 0;
+   const size_t kept = preserved_count(batch);
+-  preserved.erase(preserved.begin(), preserved.begin() + kept);
+-  if (start + kept < batch.records.size()) preserved.clear();
++  const size_t partial = preserved_bytes(batch) ? 1 : 0;
++  preserved.erase(preserved.begin(), preserved.begin() + kept + partial);
++  if (start + kept < batch.records.size() || preserved.empty()) {
++    preserved.clear();
++    preserved_partial = false;
++  }
+   for (size_t i = start; i < batch.records.size(); ++i) {
+     delivered.push_back(batch.records[i]);
+     delivered_bytes += batch.records[i].size();
+@@ -149,9 +154,47 @@
+   Framebuffer reflowed(before);
+   shared_ptr<HistoryLog> log = make_shared<HistoryLog>();
+   reflowed.set_history_log(log);
+-  reflowed.resize(width, height);
++  reflowed.resize(width, height, false, termux_reflow);
++  preserved_partial = log->has_pending();
+   log->break_line();
+-  preserved = log->after(0).records;
++  // A resize can archive more than one network batch locally.
++  preserved.clear();
++  for (uint64_t first = 0; first < log->end();) {
++    const HistoryBatch batch = log->after(first);
++    preserved.insert(preserved.end(), batch.records.begin(), batch.records.end());
++    first = batch.end();
++  }
++}
++
++size_t HistoryReplay::preserved_bytes(const HistoryBatch &batch) const
++{
++  if (!preserved_partial || batch.first > next) return 0;
++  const size_t count = preserved_count(batch);
++  const size_t index = (next > batch.first ? next - batch.first : 0) + count;
++  if (count + 1 != preserved.size() || index >= batch.records.size()) return 0;
++  const std::string &fragment = preserved[count];
++  const std::string ending("\033[0m\r\n");
++  if (fragment.size() <= ending.size()
++      || fragment.compare(fragment.size() - ending.size(), ending.size(), ending) != 0) return 0;
++  const size_t length = fragment.size() - ending.size();
++  return batch.records[index].compare(0, length, fragment, 0, length) == 0 ? length : 0;
++}
++
++uint64_t HistoryReplay::pulled_rows(const Framebuffer &before, int width, int height)
++{
++  const uint64_t history_rows = rows_at_width(width);
++  if (width == before.ds.get_width())
++    return std::min<uint64_t>(history_rows, std::max(0, height - before.ds.get_height()));
++  Framebuffer reflowed(before);
++  reflowed.set_history_log(make_shared<HistoryLog>());
++  reflowed.resize(width, 10000, false, termux_reflow);
++  int used = reflowed.ds.get_cursor_row() + 1;
++  if (termux_reflow && before.ds.get_cursor_row() < before.ds.get_height() - 1) ++used;
++  if (!termux_reflow) {
++    const int blank_tail = before.ds.get_height() - before.ds.get_cursor_row() - 1;
++    used += std::max(0, blank_tail - std::max(0, before.ds.get_height() - height) - 1);
++  }
++  return std::min<uint64_t>(history_rows, std::max(0, height - used));
+ }
+ 
+ uint64_t HistoryReplay::rows_at_width(int width)
+--- a/src/terminal/nativehistory.h
++++ b/src/terminal/nativehistory.h
+@@ -42,6 +42,7 @@
+     HistoryBatch after(uint64_t acknowledged) const;
+     uint64_t end() const { return first + records.size(); }
+     size_t retained_bytes() const { return bytes; }
++    bool has_pending() const { return !pending.empty() || overlong; }
+   };
+ 
+   class HistoryReplay {
+@@ -49,11 +50,15 @@
+     std::deque<std::string> delivered;
+     std::vector<std::string> preserved;
+     size_t delivered_bytes;
++    bool preserved_partial;
++    bool termux_reflow;
+     int cached_width;
+     uint64_t cached_rows;
+     size_t preserved_count(const HistoryBatch &batch) const;
++    size_t preserved_bytes(const HistoryBatch &batch) const;
+   public:
+-    HistoryReplay() : next(0), delivered(), preserved(), delivered_bytes(0),
++    explicit HistoryReplay(bool termux_resize = false) : next(0), delivered(), preserved(),
++      delivered_bytes(0), preserved_partial(false), termux_reflow(termux_resize),
+       cached_width(0), cached_rows(0) {}
+     uint64_t acknowledged() const { return next; }
+     // Does not advance the acknowledgement until commit(), after stdout drains.
+@@ -61,6 +66,7 @@
+     void commit(const HistoryBatch &batch);
+     void remember_resize(const Framebuffer &before, int width, int height);
+     uint64_t rows_at_width(int width);
++    uint64_t pulled_rows(const Framebuffer &before, int width, int height);
+     static std::string clear_viewport(int height);
+   };
+ }
+--- a/src/terminal/terminalframebuffer.cc
++++ b/src/terminal/terminalframebuffer.cc
+@@ -79,7 +79,9 @@
+ }
+ 
+ Framebuffer::Framebuffer( int s_width, int s_height )
+-  : rows(), icon_name(), window_title(), clipboard(), bell_count( 0 ), title_initialized( false ), history_log(), ds( s_width, s_height ), alternate_screen(false)
++  : rows(), icon_name(), window_title(), clipboard(), bell_count( 0 ), title_initialized( false ), history_log(),
++    termux_reflow(getenv("MOSH_NATIVE_TERMUX") == NULL || getenv("MOSH_NATIVE_TERMUX")[0] != '0'),
++    ds( s_width, s_height ), alternate_screen(false)
+ {
+   assert( s_height > 0 );
+   assert( s_width > 0 );
+@@ -91,7 +93,8 @@
+ Framebuffer::Framebuffer( const Framebuffer &other )
+   : rows( other.rows ), icon_name( other.icon_name ), window_title( other.window_title ),
+     clipboard( other.clipboard ), bell_count( other.bell_count ),
+-    title_initialized( other.title_initialized ), history_log(other.history_log), ds( other.ds ), alternate_screen(other.alternate_screen)
++    title_initialized( other.title_initialized ), history_log(other.history_log), termux_reflow(other.termux_reflow),
++    ds( other.ds ), alternate_screen(other.alternate_screen)
+ {
+ }
+ 
+@@ -105,6 +108,7 @@
+     bell_count = other.bell_count;
+     title_initialized = other.title_initialized;
+     history_log = other.history_log;
++    termux_reflow = other.termux_reflow;
+     alternate_screen = other.alternate_screen;
+     ds = other.ds;
+   }
+@@ -408,7 +412,7 @@
+   ds.clear_saved_cursor();
+ }
+ 
+-void Framebuffer::resize( int s_width, int s_height )
++void Framebuffer::resize( int s_width, int s_height, bool complete_records, bool reserve_blank )
+ {
+   assert( s_width > 0 );
+   assert( s_height > 0 );
+@@ -459,7 +463,7 @@
+           cursor_col = std::min(column + old_cursor_col - col, s_width - 1);
+         }
+         for (int part = 0; part < width; ++part) {
+-          current->cells[column + part] = source.cells[col + part];
++          if (col + part < oldwidth) current->cells[column + part] = source.cells[col + part];
+           current->cells[column + part].set_wrap(false);
+         }
+         column += width;
+@@ -478,11 +482,25 @@
+     }
+     if (column) reflowed.push_back(current);
+     assert(cursor_row >= 0);
++    // VTE keeps the unused tail during width reflow; Termux discards it and
++    // reserves one blank line after a non-bottom cursor instead.
++    const bool termux = complete_records ? termux_reflow : reserve_blank;
++    if (oldwidth == s_width || !termux) {
++      int tail = std::max(0, oldheight - last - 1 - std::max(0, oldheight - s_height));
++      if (!termux && oldwidth != s_width) tail = std::max(0, tail - 1);
++      reflowed.insert(reflowed.end(), tail, make_shared<Row>(s_width, ds.get_background_rendition()));
++    } else if (last < oldheight - 1) {
++      reflowed.push_back(make_shared<Row>(s_width, ds.get_background_rendition()));
++    }
+ 
+     size_t archived = reflowed.size() > static_cast<size_t>(s_height)
+       ? reflowed.size() - s_height : 0;
++    if (complete_records) {
++      while (archived && archived < static_cast<size_t>(cursor_row)
++             && reflowed[archived - 1]->get_wrap()) ++archived;
++    }
+     for (size_t row = 0; row < archived; ++row) history_log->append_row(*reflowed[row]);
+-    if (archived && reflowed[archived - 1]->get_wrap()) history_log->break_line();
++    if (complete_records && archived && reflowed[archived - 1]->get_wrap()) history_log->break_line();
+     reflowed.erase(reflowed.begin(), reflowed.begin() + archived);
+     ds.resize(s_width, s_height);
+     reflowed.resize(s_height, make_shared<Row>(s_width, ds.get_background_rendition()));
+--- a/src/terminal/terminalframebuffer.h
++++ b/src/terminal/terminalframebuffer.h
+@@ -384,6 +384,7 @@
+     unsigned int bell_count;
+     bool title_initialized; /* true if the window title has been set via an OSC */
+     shared_ptr<HistoryLog> history_log;
++    bool termux_reflow;
+ 
+     row_pointer newrow( void )
+     {
+@@ -464,7 +465,7 @@
+ 
+     void prefix_window_title( const title_type &s );
+ 
+-    void resize( int s_width, int s_height );
++    void resize( int s_width, int s_height, bool complete_records = true, bool reserve_blank = true );
+ 
+     void reset_cell( Cell *c ) { c->reset( ds.get_background_rendition() ); }
+     void reset_row( Row *r ) { r->reset( ds.get_background_rendition() ); }

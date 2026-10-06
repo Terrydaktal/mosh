@@ -448,9 +448,8 @@ bool STMClient::process_resize( void )
      that prefix back with the eventual repaint, not during every animation step.
      A subsequent shrink already archives that many rows on the terminal side. */
   if (history_replay.acknowledged()) {
-    const int growth = static_cast<int>(observed.ws_row) - window_size.ws_row;
-    pending_history_scroll = static_cast<int>(std::min<uint64_t>(
-      std::max(0, pending_history_scroll + growth), history_replay.rows_at_width(observed.ws_col)));
+    pending_history_scroll = history_replay.pulled_rows(
+      local_framebuffer, observed.ws_col, observed.ws_row);
   }
   history_replay.remember_resize(local_framebuffer, observed.ws_col, observed.ws_row);
   window_size = observed;

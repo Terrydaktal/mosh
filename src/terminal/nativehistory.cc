@@ -104,8 +104,9 @@ std::string HistoryReplay::prepare(const HistoryBatch &batch, int height) const
     output += notice;
   }
   const size_t start = next > batch.first ? next - batch.first : 0;
-  for (size_t i = start + preserved_count(batch); i < batch.records.size(); ++i)
-    output += batch.records[i];
+  const size_t skipped = start + preserved_count(batch);
+  for (size_t i = skipped; i < batch.records.size(); ++i)
+    output += batch.records[i].substr(i == skipped ? preserved_bytes(batch) : 0);
   if (output.empty()) return "";
   output = clear_viewport(height) + output;
   output += "\033[0m";
@@ -119,8 +120,12 @@ void HistoryReplay::commit(const HistoryBatch &batch)
   if (batch.end() <= next) return;
   const size_t start = next > batch.first ? next - batch.first : 0;
   const size_t kept = preserved_count(batch);
-  preserved.erase(preserved.begin(), preserved.begin() + kept);
-  if (start + kept < batch.records.size()) preserved.clear();
+  const size_t partial = preserved_bytes(batch) ? 1 : 0;
+  preserved.erase(preserved.begin(), preserved.begin() + kept + partial);
+  if (start + kept < batch.records.size() || preserved.empty()) {
+    preserved.clear();
+    preserved_partial = false;
+  }
   for (size_t i = start; i < batch.records.size(); ++i) {
     delivered.push_back(batch.records[i]);
     delivered_bytes += batch.records[i].size();
@@ -149,9 +154,47 @@ void HistoryReplay::remember_resize(const Framebuffer &before, int width, int he
   Framebuffer reflowed(before);
   shared_ptr<HistoryLog> log = make_shared<HistoryLog>();
   reflowed.set_history_log(log);
-  reflowed.resize(width, height);
+  reflowed.resize(width, height, false, termux_reflow);
+  preserved_partial = log->has_pending();
   log->break_line();
-  preserved = log->after(0).records;
+  // A resize can archive more than one network batch locally.
+  preserved.clear();
+  for (uint64_t first = 0; first < log->end();) {
+    const HistoryBatch batch = log->after(first);
+    preserved.insert(preserved.end(), batch.records.begin(), batch.records.end());
+    first = batch.end();
+  }
+}
+
+size_t HistoryReplay::preserved_bytes(const HistoryBatch &batch) const
+{
+  if (!preserved_partial || batch.first > next) return 0;
+  const size_t count = preserved_count(batch);
+  const size_t index = (next > batch.first ? next - batch.first : 0) + count;
+  if (count + 1 != preserved.size() || index >= batch.records.size()) return 0;
+  const std::string &fragment = preserved[count];
+  const std::string ending("\033[0m\r\n");
+  if (fragment.size() <= ending.size()
+      || fragment.compare(fragment.size() - ending.size(), ending.size(), ending) != 0) return 0;
+  const size_t length = fragment.size() - ending.size();
+  return batch.records[index].compare(0, length, fragment, 0, length) == 0 ? length : 0;
+}
+
+uint64_t HistoryReplay::pulled_rows(const Framebuffer &before, int width, int height)
+{
+  const uint64_t history_rows = rows_at_width(width);
+  if (width == before.ds.get_width())
+    return std::min<uint64_t>(history_rows, std::max(0, height - before.ds.get_height()));
+  Framebuffer reflowed(before);
+  reflowed.set_history_log(make_shared<HistoryLog>());
+  reflowed.resize(width, 10000, false, termux_reflow);
+  int used = reflowed.ds.get_cursor_row() + 1;
+  if (termux_reflow && before.ds.get_cursor_row() < before.ds.get_height() - 1) ++used;
+  if (!termux_reflow) {
+    const int blank_tail = before.ds.get_height() - before.ds.get_cursor_row() - 1;
+    used += std::max(0, blank_tail - std::max(0, before.ds.get_height() - height) - 1);
+  }
+  return std::min<uint64_t>(history_rows, std::max(0, height - used));
 }
 
 uint64_t HistoryReplay::rows_at_width(int width)

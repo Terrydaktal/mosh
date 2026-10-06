@@ -376,6 +376,10 @@ if ( $pid == 0 ) { # child
     }
   }
   my @server = ( 'new' );
+  # The remote emulator must use the same resize policy as the local terminal.
+  my $termux_reflow = exists $ENV{'TERMUX_VERSION'}
+    || (defined $ENV{'PREFIX'} && $ENV{'PREFIX'} =~ m{/com\.termux/files/usr$});
+  my $server_command = 'env MOSH_NATIVE_TERMUX=' . ($termux_reflow ? '1 ' : '0 ') . $server;
 
   push @server, ( '-c', $colors );
 
@@ -397,7 +401,7 @@ if ( $pid == 0 ) { # child
     delete $ENV{ 'SSH_CONNECTION' };
     chdir; # $HOME
     print "MOSH IP ${userhost}\n";
-    exec( "$server " . shell_quote( @server ) );
+    exec( "$server_command " . shell_quote( @server ) );
     die "Cannot exec $server: $!\n";
   }
   if ( $use_remote_ip eq 'proxy' ) {
@@ -408,7 +412,7 @@ if ( $pid == 0 ) { # child
     my $quoted_proxy_command = shell_quote( $0, "--family=$family" );
     push @sshopts, ( '-S', 'none', '-o', "ProxyCommand=$quoted_proxy_command --fake-proxy -- %h %p" );
   }
-  my @exec_argv = ( @ssh, @sshopts, $userhost, '--', $ssh_connection . "$server " . shell_quote( @server ) );
+  my @exec_argv = ( @ssh, @sshopts, $userhost, '--', $ssh_connection . "$server_command " . shell_quote( @server ) );
   exec @exec_argv;
   die "Cannot exec ssh: $!\n";
 } else { # parent

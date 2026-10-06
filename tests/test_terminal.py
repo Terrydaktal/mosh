@@ -381,3 +381,35 @@ def test_keyboard_resize_never_draws_old_geometry(environment, kind):
         app.until(lambda s: b"viewport-80x24" in s["screen"], timeout=10)
     finally:
         session.close()
+
+
+@pytest.mark.parametrize("kind", ["termux", "vte"])
+def test_real_wrapper_launches_matching_client_without_path_entry(environment, kind):
+    env = os.environ.copy()
+    if kind == "termux":
+        env["TERMUX_VERSION"] = "terminal-oracle"
+    else:
+        env.pop("TERMUX_VERSION", None)
+        env.pop("PREFIX", None)
+    backend = SimpleNamespace(socket=environment / "unused", env=env)
+    app = Attachment(
+        backend,
+        kind=kind,
+        argv=[
+            str(BUILD / "scripts/mosh-native"),
+            "--local",
+            f"--server={SERVER}",
+            "127.0.0.1",
+            "--",
+            sys.executable,
+            "-c",
+            "import os; print('native-wrapper-ready model=' + os.environ['MOSH_NATIVE_TERMUX'])",
+        ],
+    )
+    try:
+        state = app.until(lambda s: app.exited, timeout=15)
+        assert b"native-wrapper-ready" in state["text"]
+        assert f"model={int(kind == 'termux')}".encode() in state["text"]
+        assert b"protocol mismatch" not in state["text"]
+    finally:
+        app.close()

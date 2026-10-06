@@ -79,7 +79,9 @@ DrawState::DrawState( int s_width, int s_height )
 }
 
 Framebuffer::Framebuffer( int s_width, int s_height )
-  : rows(), icon_name(), window_title(), clipboard(), bell_count( 0 ), title_initialized( false ), history_log(), ds( s_width, s_height ), alternate_screen(false)
+  : rows(), icon_name(), window_title(), clipboard(), bell_count( 0 ), title_initialized( false ), history_log(),
+    termux_reflow(getenv("MOSH_NATIVE_TERMUX") == NULL || getenv("MOSH_NATIVE_TERMUX")[0] != '0'),
+    ds( s_width, s_height ), alternate_screen(false)
 {
   assert( s_height > 0 );
   assert( s_width > 0 );
@@ -91,7 +93,8 @@ Framebuffer::Framebuffer( int s_width, int s_height )
 Framebuffer::Framebuffer( const Framebuffer &other )
   : rows( other.rows ), icon_name( other.icon_name ), window_title( other.window_title ),
     clipboard( other.clipboard ), bell_count( other.bell_count ),
-    title_initialized( other.title_initialized ), history_log(other.history_log), ds( other.ds ), alternate_screen(other.alternate_screen)
+    title_initialized( other.title_initialized ), history_log(other.history_log), termux_reflow(other.termux_reflow),
+    ds( other.ds ), alternate_screen(other.alternate_screen)
 {
 }
 
@@ -105,6 +108,7 @@ Framebuffer & Framebuffer::operator=( const Framebuffer &other )
     bell_count = other.bell_count;
     title_initialized = other.title_initialized;
     history_log = other.history_log;
+    termux_reflow = other.termux_reflow;
     alternate_screen = other.alternate_screen;
     ds = other.ds;
   }
@@ -408,7 +412,7 @@ void Framebuffer::soft_reset( void )
   ds.clear_saved_cursor();
 }
 
-void Framebuffer::resize( int s_width, int s_height )
+void Framebuffer::resize( int s_width, int s_height, bool complete_records, bool reserve_blank )
 {
   assert( s_width > 0 );
   assert( s_height > 0 );
@@ -459,7 +463,7 @@ void Framebuffer::resize( int s_width, int s_height )
           cursor_col = std::min(column + old_cursor_col - col, s_width - 1);
         }
         for (int part = 0; part < width; ++part) {
-          current->cells[column + part] = source.cells[col + part];
+          if (col + part < oldwidth) current->cells[column + part] = source.cells[col + part];
           current->cells[column + part].set_wrap(false);
         }
         column += width;
@@ -478,11 +482,25 @@ void Framebuffer::resize( int s_width, int s_height )
     }
     if (column) reflowed.push_back(current);
     assert(cursor_row >= 0);
+    // VTE keeps the unused tail during width reflow; Termux discards it and
+    // reserves one blank line after a non-bottom cursor instead.
+    const bool termux = complete_records ? termux_reflow : reserve_blank;
+    if (oldwidth == s_width || !termux) {
+      int tail = std::max(0, oldheight - last - 1 - std::max(0, oldheight - s_height));
+      if (!termux && oldwidth != s_width) tail = std::max(0, tail - 1);
+      reflowed.insert(reflowed.end(), tail, make_shared<Row>(s_width, ds.get_background_rendition()));
+    } else if (last < oldheight - 1) {
+      reflowed.push_back(make_shared<Row>(s_width, ds.get_background_rendition()));
+    }
 
     size_t archived = reflowed.size() > static_cast<size_t>(s_height)
       ? reflowed.size() - s_height : 0;
+    if (complete_records) {
+      while (archived && archived < static_cast<size_t>(cursor_row)
+             && reflowed[archived - 1]->get_wrap()) ++archived;
+    }
     for (size_t row = 0; row < archived; ++row) history_log->append_row(*reflowed[row]);
-    if (archived && reflowed[archived - 1]->get_wrap()) history_log->break_line();
+    if (complete_records && archived && reflowed[archived - 1]->get_wrap()) history_log->break_line();
     reflowed.erase(reflowed.begin(), reflowed.begin() + archived);
     ds.resize(s_width, s_height);
     reflowed.resize(s_height, make_shared<Row>(s_width, ds.get_background_rendition()));

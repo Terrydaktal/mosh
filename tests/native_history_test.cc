@@ -185,6 +185,47 @@ static void wrapped_resize()
   assert(replay.rows_at_width(93) == wider);
 }
 
+static void resize_history_spans_batches()
+{
+  for (bool record_limit : {false, true}) {
+    Complete terminal(record_limit ? 20 : 93, record_limit ? 300 : 71);
+    terminal.enable_history();
+    if (record_limit) {
+      terminal.act(lines(240) + "prompt> ");
+    } else {
+      std::string output;
+      for (int row = 0; row < 18; ++row) {
+        output += "row-" + std::to_string(row) + ": ";
+        for (int part = 0; part < 6; ++part)
+          output += "[abcdefghijklmnopqrstuvwxyz\xe7\xba\xa2\xe9\xad\x94\xe7\x95\x8c-e\xcc\x81]";
+        output += "-end\r\n";
+      }
+      terminal.act(output + "prompt> ");
+    }
+    const int width = record_limit ? 20 : 5;
+    HistoryReplay replay(true);
+    replay.remember_resize(terminal.get_fb(), width, 4);
+
+    Framebuffer resized(terminal.get_fb());
+    shared_ptr<HistoryLog> log = make_shared<HistoryLog>();
+    resized.set_history_log(log);
+    resized.resize(width, 4, false, true);
+    log->break_line();
+    assert(log->end() > log->after(0).end());
+
+    int batches = 0;
+    while (replay.acknowledged() < log->end()) {
+      const HistoryBatch batch = log->after(replay.acknowledged());
+      assert(!batch.records.empty());
+      // Every packet is already in native scrollback, not only the first one.
+      assert(replay.prepare(batch, 4).empty());
+      replay.commit(batch);
+      ++batches;
+    }
+    assert(batches > 1);
+  }
+}
+
 int main()
 {
   std::setlocale(LC_ALL, "C.UTF-8");
@@ -193,5 +234,6 @@ int main()
   modes();
   resize_bursts();
   wrapped_resize();
+  resize_history_spans_batches();
   std::cout << "native history checks passed\n";
 }

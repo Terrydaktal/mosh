@@ -42,6 +42,7 @@ namespace Terminal {
     HistoryBatch after(uint64_t acknowledged) const;
     uint64_t end() const { return first + records.size(); }
     size_t retained_bytes() const { return bytes; }
+    bool has_pending() const { return !pending.empty() || overlong; }
   };
 
   class HistoryReplay {
@@ -49,11 +50,15 @@ namespace Terminal {
     std::deque<std::string> delivered;
     std::vector<std::string> preserved;
     size_t delivered_bytes;
+    bool preserved_partial;
+    bool termux_reflow;
     int cached_width;
     uint64_t cached_rows;
     size_t preserved_count(const HistoryBatch &batch) const;
+    size_t preserved_bytes(const HistoryBatch &batch) const;
   public:
-    HistoryReplay() : next(0), delivered(), preserved(), delivered_bytes(0),
+    explicit HistoryReplay(bool termux_resize = false) : next(0), delivered(), preserved(),
+      delivered_bytes(0), preserved_partial(false), termux_reflow(termux_resize),
       cached_width(0), cached_rows(0) {}
     uint64_t acknowledged() const { return next; }
     // Does not advance the acknowledgement until commit(), after stdout drains.
@@ -61,6 +66,7 @@ namespace Terminal {
     void commit(const HistoryBatch &batch);
     void remember_resize(const Framebuffer &before, int width, int height);
     uint64_t rows_at_width(int width);
+    uint64_t pulled_rows(const Framebuffer &before, int width, int height);
     static std::string clear_viewport(int height);
   };
 }

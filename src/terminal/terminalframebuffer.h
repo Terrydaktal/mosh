@@ -384,6 +384,7 @@ namespace Terminal {
     unsigned int bell_count;
     bool title_initialized; /* true if the window title has been set via an OSC */
     shared_ptr<HistoryLog> history_log;
+    bool termux_reflow;
 
     row_pointer newrow( void )
     {
@@ -464,7 +465,7 @@ namespace Terminal {
 
     void prefix_window_title( const title_type &s );
 
-    void resize( int s_width, int s_height );
+    void resize( int s_width, int s_height, bool complete_records = true, bool reserve_blank = true );
 
     void reset_cell( Cell *c ) { c->reset( ds.get_background_rendition() ); }
     void reset_row( Row *r ) { r->reset( ds.get_background_rendition() ); }

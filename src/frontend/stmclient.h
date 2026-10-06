@@ -103,7 +103,8 @@ public:
       overlays(),
       network(),
       display( true, true ), /* the terminal owns scrolling, not copy mode */
-      history_replay(),
+      history_replay(getenv("TERMUX_VERSION") != NULL
+        || (getenv("PREFIX") != NULL && strstr(getenv("PREFIX"), "/com.termux/files/usr") != NULL)),
       resize_debouncer(),
       pending_history_scroll(0),
       connecting_notification(),

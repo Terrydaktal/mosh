@@ -53,6 +53,13 @@ preserving character content, styling and cursor position. Retained history trac
 rows already archived locally so a later redraw need not replay them twice. Wide
 table regression cases remain tests; this does not promise all emulators agree.
 
+## Complete Resize-History Replay
+
+The client retains every bounded resize-history batch rather than just the first
+8 KiB/128-record slice. The selected terminal reflow model is carried through the
+launcher and replay. Unicode, large archives, narrow widths and coloured Fish
+output have distinct regressions; emulator limitations must remain visible.
+
 ## Upstream Ancestry
 
 This main branch starts at the upstream mosh-1.4.0 Git release, not an unrelated
