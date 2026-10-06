@@ -74,6 +74,15 @@ exactly fills the new width. Regressions check independently measured positions
 and output ordering at 20, 12, 8, 5, 3 and 2 columns. Native wire protocol and VTE
 model are unchanged. Termux's separate space-padding defect remains outstanding.
 
+## Termux Source Bundles And Safe Upgrades
+
+bundle-termux.sh emits a source archive, checksum and installer in build/termux-bundle.
+Transfer those files to Download and run the installer inside a local Termux tab.
+It checks the archive, installs libprotobuf plus the protoc compiler, validates
+dependencies, builds in a new private directory, logs failures, and replaces only
+recognised native-tool symlinks. Unrelated files, other links, old binaries, app
+data and running sessions are preserved. It never installs or removes a Termux APK.
+
 ## Upstream Ancestry
 
 This main branch starts at the upstream mosh-1.4.0 Git release, not an unrelated
