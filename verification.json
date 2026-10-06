@@ -1,8 +1,720 @@
 {
   "product": "mosh",
-  "upstream": {
-    "version": "1.4.0",
-    "archive_sha256": "872e4b134e5df29c8933dff12350785054d2fd2839b5ae6b5587b14db1465ddd"
+  "status": "experimental",
+  "upstream": "Mosh 1.4.0, SHA256 872e4b134e5df29c8933dff12350785054d2fd2839b5ae6b5587b14db1465ddd",
+  "protocol_id": "0x4e480001",
+  "requirements": [
+    {
+      "id": "HISTORY-01",
+      "contract": "loss, duplicate and delayed batches preserve retained records exactly once",
+      "tests": [
+        "tests/native_history_test.cc",
+        "tests/test_terminal.py::test_history_reaches_native_scrollback"
+      ]
+    },
+    {
+      "id": "HISTORY-02",
+      "contract": "retention and record sizes are bounded; expiry and overlong lines are explicit",
+      "tests": [
+        "tests/native_history_test.cc"
+      ]
+    },
+    {
+      "id": "HISTORY-03",
+      "contract": "outage and client-address roaming recover undelivered retained history",
+      "tests": [
+        "tests/test_terminal.py::test_outage_and_roaming_recover_undelivered_history"
+      ]
+    },
+    {
+      "id": "HISTORY-04",
+      "contract": "finite command EOF drains queued history before normal shutdown",
+      "tests": [
+        "tests/test_terminal.py::test_finite_command_drains_history_before_exit"
+      ]
+    },
+    {
+      "id": "TTY-01",
+      "contract": "terminal owns scrolling; no alternate screen, copy-mode mouse capture or duplicate repaint scrolls",
+      "tests": [
+        "tests/test_terminal.py::test_history_reaches_native_scrollback",
+        "tests/native_history_test.cc"
+      ]
+    },
+    {
+      "id": "TTY-02",
+      "contract": "short logical history records survive tested growth, shrink and width changes, including resume/resize signal ordering",
+      "tests": [
+        "tests/test_terminal.py::test_resize_during_history_transfer",
+        "tests/test_terminal.py::test_resize_after_delivery_and_before_any_history"
+      ]
+    },
+    {
+      "id": "ORDINARY-01",
+      "contract": "ordinary Mosh stays stock-wire-compatible on the separate tmux transport path",
+      "tests": [
+        "tests/test_terminal.py::test_ordinary_mosh_path_remains_stock_wire_compatible"
+      ]
+    },
+    {
+      "id": "COMPAT-01",
+      "contract": "stock protocol peers are explicitly rejected",
+      "tests": [
+        "tests/test_terminal.py::test_stock_peer_is_rejected"
+      ]
+    },
+    {
+      "id": "BUILD-01",
+      "contract": "pinned source, reproducible clean patch build and separate non-overwriting symlink install",
+      "tests": [
+        "scripts/build.sh",
+        "scripts/link.sh",
+        "tests/test_terminal.py::test_wrapper_resolves_its_own_client_outside_path"
+      ]
+    },
+    {
+      "id": "BUILD-02",
+      "contract": "Termux installer requests the separate protobuf compiler package and verifies protoc before source extraction or build",
+      "tests": [
+        "tests/test_install.py::test_phone_installer_installs_and_checks_compiler"
+      ]
+    },
+    {
+      "id": "TTY-03",
+      "contract": "keyboard resize bursts coalesce over 120 ms; stale-sized remote frames are not drawn and input/network processing continues",
+      "tests": [
+        "tests/test_terminal.py::test_keyboard_resize_never_draws_old_geometry",
+        "tests/native_history_test.cc"
+      ]
+    },
+    {
+      "id": "BUILD-03",
+      "contract": "Termux upgrades replace only recognized prior bundle symlinks, keep old binaries, and refuse unrelated paths without partial updates",
+      "tests": [
+        "tests/test_install.py::test_termux_upgrade_only_replaces_owned_links"
+      ]
+    },
+    {
+      "id": "COMPAT-02",
+      "contract": "native2 client works with a native1 server without restarting the persistent session",
+      "tests": [
+        "tests/test_terminal.py::test_keyboard_resize_never_draws_old_geometry",
+        "tests/test_terminal.py::test_history_reaches_native_scrollback"
+      ]
+    },
+    {
+      "id": "STATUS-01",
+      "contract": "direct native-history servers expose authenticated packet age through the existing owner-only API; queries, replay and invalid UDP do not refresh age; inventory and scoped cleanup use it",
+      "tests": [
+        "tests/test_status.py"
+      ]
+    },
+    {
+      "id": "COMPAT-03",
+      "contract": "the previously installed native2 client works with the rebuilt packet-reporting server without any history or wire-protocol change",
+      "tests": [
+        "tests/test_status.py::test_packet_age_inventory_and_cleanup_work_with_direct_history[existing-native2]"
+      ]
+    },
+    {
+      "id": "TTY-04",
+      "contract": "Native4 Termux retains wide ASCII/Unicode output once and in order through repeated severe zoom; preserved resize archives cover every bounded wire batch, not just the first",
+      "tests": [
+        "tests/test_zoom.py",
+        "tests/native_history_test.cc::resize_history_spans_batches"
+      ]
+    },
+    {
+      "id": "BUILD-04",
+      "contract": "A clean host/Termux build includes the activated terminal-model launcher and reflow source changes as ordered patches, with old builds retained",
+      "tests": [
+        "tests/test_terminal.py::test_real_wrapper_launches_matching_client_without_path_entry",
+        "scripts/build.sh"
+      ]
+    },
+    {
+      "id": "TTY-05",
+      "contract": "Native5 preserves reproduced whitespace-heavy Fish output through severe slow and rapid Termux zoom without losing or duplicating table records",
+      "tests": [
+        "tests/test_zoom_artifacts.py"
+      ]
+    },
+    {
+      "id": "INPUT-01",
+      "contract": "Resize cursor reports remain local; fragmented replies, stale geometry, ordinary keys, malformed bounds, timeout and late replies are bounded and isolated",
+      "tests": [
+        "tests/native_history_test.cc"
+      ]
+    },
+    {
+      "id": "ORACLE-01",
+      "contract": "The terminal padding-wrap defect is reproduced independently without Mosh and distinguished from transport text loss",
+      "tests": [
+        "tests/test_termux_padding.py"
+      ]
+    },
+    {
+      "id": "TTY-06",
+      "contract": "The Termux-specific cursor reflow model includes the empty cursor cell on width changes, avoiding repeated retired row fragments at exact width boundaries",
+      "tests": [
+        "tests/native_history_test.cc::cursor_boundary_resize",
+        "tests/test_tiny_zoom.py"
+      ]
+    },
+    {
+      "id": "ORACLE-02",
+      "contract": "Whitespace-compacted text is not enough: exact table/prose line structure is separately checked against both the installed-version emulator and the independent Termux source fix",
+      "tests": [
+        "tests/test_tiny_zoom.py",
+        "tests/test_termux_padding.py"
+      ]
+    }
+  ],
+  "manual_gates": [
+    "Physical Termux native2 keyboard-animation behavior",
+    "Phone touch scrolling and native copy selection",
+    "Real Wi-Fi/cellular handover and extended offline retention pressure",
+    "Long-duration performance, complex Unicode reflow and advanced terminal protocols",
+    "Full upstream terminal-emulation suite",
+    "Wrapped live viewport reflow and arbitrary resize interleavings",
+    "Native6 must be built/started in a fresh local Termux tab; installed phone client remains native5 at this snapshot",
+    "Complete extreme-zoom table alignment requires the separate Termux APK patch; no APK migration or data change is authorized/performed by this work"
+  ],
+  "results": {
+    "date": "2026-10-02T04:16:01+01:00",
+    "release": "build/release.C7y3SC",
+    "patch_sha256": "e9b33cb64c54ac67b7744dc0496a1ac14c10d60768157a6628b1f549324e9940",
+    "desktop_integration": {
+      "passed": 69,
+      "failed": 3,
+      "skipped": 1,
+      "xfailed": 11,
+      "seconds": 330.38,
+      "evidence": "artifacts/severe-zoom.H9VUWs/final.xml",
+      "known_failures": [
+        "test_wide_table_survives_resize_round_trip[size0-vte]",
+        "test_wide_table_survives_resize_round_trip[size1-vte]",
+        "test_wide_table_survives_resize_round_trip[size2-vte]"
+      ],
+      "scope": "Unmodified source-matched Google Play Termux emulator; known padding reflow failures are strict xfails; private PTYs/loopback only"
+    },
+    "history_protocol": {
+      "passed": true,
+      "evidence": "artifacts/severe-zoom.H9VUWs/final-unit.log",
+      "new_regression": "Cursor blank-cell position at exact width boundaries, measured independently from Termux"
+    },
+    "upstream_crypto": {
+      "passed": 4,
+      "failed": 0,
+      "evidence": "artifacts/upstream-crypto.txt"
+    },
+    "red_evidence": [
+      "artifacts/terminal-wire-first.txt",
+      "artifacts/resize-first-failure.txt",
+      "artifacts/resize-atomic-before-fix.txt",
+      "artifacts/keyboard-resize-before.txt",
+      "artifacts/resize-artifacts.VyerhY/googleplay-red.xml",
+      "artifacts/resize-artifacts.VyerhY/termux-padding-red.xml"
+    ],
+    "android": "Phone native4 installer log confirms a completed build. Native5 client installation and physical gestures remain unverified; no Termux APK or app data has been changed.",
+    "installer_protoc": {
+      "passed": 6,
+      "failed": 0,
+      "environment": "isolated desktop fixture; fake Termux package manager, no live package installation",
+      "evidence": "artifacts/protoc-installer-fixed.xml",
+      "red_evidence": "artifacts/protoc-installer-before.txt"
+    },
+    "version": "1.4.0-native6",
+    "native1_compatibility": {
+      "passed": 6,
+      "failed": 0,
+      "evidence": "artifacts/keyboard-native1-compat.txt"
+    },
+    "previous_native2": {
+      "date": "2026-09-26",
+      "release": "build/release.4oVfbz",
+      "patch_sha256": "a747236dd9ca00012ee4e1a26c392e5cf8ee50384511c85375c400748de4e39a",
+      "desktop_integration": {
+        "passed": 31,
+        "failed": 0,
+        "seconds": 80.31,
+        "evidence": "artifacts/keyboard-release.xml"
+      },
+      "history_protocol": {
+        "passed": true,
+        "evidence": "artifacts/keyboard-release-unit.txt"
+      },
+      "upstream_crypto": {
+        "passed": 4,
+        "failed": 0,
+        "evidence": "artifacts/upstream-crypto.txt"
+      },
+      "red_evidence": [
+        "artifacts/terminal-wire-first.txt",
+        "artifacts/resize-first-failure.txt",
+        "artifacts/resize-atomic-before-fix.txt",
+        "artifacts/keyboard-resize-before.txt"
+      ],
+      "android": "native1 compiled and used successfully on the phone, confirmed by user and installer log; native2 upgrade and keyboard animation remain unverified on device",
+      "installer_protoc": {
+        "passed": 6,
+        "failed": 0,
+        "environment": "isolated desktop fixture; fake Termux package manager, no live package installation",
+        "evidence": "artifacts/protoc-installer-fixed.xml",
+        "red_evidence": "artifacts/protoc-installer-before.txt"
+      },
+      "version": "1.4.0-native2",
+      "native1_compatibility": {
+        "passed": 6,
+        "failed": 0,
+        "evidence": "artifacts/keyboard-native1-compat.txt"
+      }
+    },
+    "zoom_fix": {
+      "date": "2026-10-02T03:16:12+01:00",
+      "version": "1.4.0-native4",
+      "release": "build/release.e5Q7aA",
+      "client_sha256": "b9e659c692f3886a18fb2a1f05c128bb76d5a703b674678a2d01e7f91d821d05",
+      "server_sha256": "22073171a76f4da0504f028dc0f93ad166d87094b21af1a0d911be46eed66442",
+      "patch": "patches/0004-complete-client-reflow.patch",
+      "patch_sha256": "57607242cf8ce82f5997ef4dfb69523e8dc58f2cdd62a072ab5c07c163bb89d8",
+      "fix": "Collect every bounded local resize-history batch, including the last partial record. Preserve previously active native3 terminal-model source and launcher corrections in the ordered clean-build patches.",
+      "protocol": "0x4e480001 unchanged; ordinary Mosh and tmux untouched",
+      "tests": {
+        "final": {
+          "passed": 49,
+          "failed": 3,
+          "report": "artifacts/zoom-loss.wUIbli/final.xml",
+          "scope": "Private PTYs/Termux/VTE and loopback only"
+        },
+        "cpp_units": {
+          "passed": true,
+          "report": "artifacts/zoom-loss.wUIbli/final-unit.log",
+          "new_cases": "Independent 8192-byte and 128-record resize replay boundaries"
+        },
+        "new_termux_zoom": {
+          "passed": 10,
+          "included_in_final_total": true,
+          "geometries": "61x38, 40x26, 20x12, 10x6, 5x4; ASCII/Unicode; three round trips"
+        },
+        "previous_server": {
+          "passed": 2,
+          "report": "artifacts/zoom-loss.wUIbli/oldserver.xml",
+          "scope": "Native4 client with private native3 server"
+        },
+        "known_failures": {
+          "cases": [
+            "test_wide_table_survives_resize_round_trip[size0-vte]",
+            "test_wide_table_survives_resize_round_trip[size1-vte]",
+            "test_wide_table_survives_resize_round_trip[size2-vte]"
+          ],
+          "also_fail_on_native3": true,
+          "baseline": "artifacts/zoom-loss.wUIbli/vte-baseline.xml"
+        }
+      },
+      "red_evidence": {
+        "native2_loss": "artifacts/zoom-loss.wUIbli/red.xml",
+        "native3_boundary_duplication": "artifacts/zoom-loss.wUIbli/stress.xml",
+        "independent_cpp_failure": "artifacts/zoom-loss.wUIbli/unit-red.log",
+        "first_clean_build_missing_launcher": "artifacts/zoom-loss.wUIbli/release.xml"
+      },
+      "activation": {
+        "host_native_tools": "installed by symlink; new launches only",
+        "existing_connections_restarted": false,
+        "stock_mosh_unchanged": true,
+        "link_log": "artifacts/zoom-loss.wUIbli/link.log"
+      },
+      "phone": {
+        "last_confirmed_client": "1.4.0-native2",
+        "required_client": "1.4.0-native4",
+        "installed": false,
+        "build_and_gestures_verified": false,
+        "installer": "/sdcard/Download/mosh-native4/mosh-native-install.sh",
+        "note": "ADB can transfer the bundle, not replace Termux private binaries; run the installer in a fresh local Termux tab and reconnect afterwards",
+        "transferred": true,
+        "transfer_checksum_verified": true,
+        "bundle_sha256": "ee52e05a7773c0bcc4691e19cad98a21cbc59a435c96f59df8cf73285645c1c9",
+        "transfer_receipt": "artifacts/zoom-loss.wUIbli/phone-transfer.txt"
+      },
+      "evidence": "artifacts/zoom-loss.wUIbli"
+    },
+    "previous_native4": {
+      "date": "2026-10-02T03:16:12+01:00",
+      "release": "build/release.e5Q7aA",
+      "patch_sha256": "a747236dd9ca00012ee4e1a26c392e5cf8ee50384511c85375c400748de4e39a",
+      "desktop_integration": {
+        "passed": 49,
+        "failed": 3,
+        "seconds": 182.05,
+        "evidence": "artifacts/zoom-loss.wUIbli/final.xml",
+        "known_failures": {
+          "cases": [
+            "test_wide_table_survives_resize_round_trip[size0-vte]",
+            "test_wide_table_survives_resize_round_trip[size1-vte]",
+            "test_wide_table_survives_resize_round_trip[size2-vte]"
+          ],
+          "also_fail_on_native3": true,
+          "baseline": "artifacts/zoom-loss.wUIbli/vte-baseline.xml"
+        }
+      },
+      "history_protocol": {
+        "passed": true,
+        "evidence": "artifacts/zoom-loss.wUIbli/final-unit.log"
+      },
+      "upstream_crypto": {
+        "passed": 4,
+        "failed": 0,
+        "evidence": "artifacts/upstream-crypto.txt"
+      },
+      "red_evidence": [
+        "artifacts/terminal-wire-first.txt",
+        "artifacts/resize-first-failure.txt",
+        "artifacts/resize-atomic-before-fix.txt",
+        "artifacts/keyboard-resize-before.txt"
+      ],
+      "android": "Native2 last confirmed by user; native4 client bundle prepared. Actual phone compilation, private installed binary version and gestures remain unverified.",
+      "installer_protoc": {
+        "passed": 6,
+        "failed": 0,
+        "environment": "isolated desktop fixture; fake Termux package manager, no live package installation",
+        "evidence": "artifacts/protoc-installer-fixed.xml",
+        "red_evidence": "artifacts/protoc-installer-before.txt"
+      },
+      "version": "1.4.0-native4",
+      "native1_compatibility": {
+        "passed": 6,
+        "failed": 0,
+        "evidence": "artifacts/keyboard-native1-compat.txt"
+      },
+      "previous_native2": {
+        "date": "2026-09-26",
+        "release": "build/release.4oVfbz",
+        "patch_sha256": "a747236dd9ca00012ee4e1a26c392e5cf8ee50384511c85375c400748de4e39a",
+        "desktop_integration": {
+          "passed": 31,
+          "failed": 0,
+          "seconds": 80.31,
+          "evidence": "artifacts/keyboard-release.xml"
+        },
+        "history_protocol": {
+          "passed": true,
+          "evidence": "artifacts/keyboard-release-unit.txt"
+        },
+        "upstream_crypto": {
+          "passed": 4,
+          "failed": 0,
+          "evidence": "artifacts/upstream-crypto.txt"
+        },
+        "red_evidence": [
+          "artifacts/terminal-wire-first.txt",
+          "artifacts/resize-first-failure.txt",
+          "artifacts/resize-atomic-before-fix.txt",
+          "artifacts/keyboard-resize-before.txt"
+        ],
+        "android": "native1 compiled and used successfully on the phone, confirmed by user and installer log; native2 upgrade and keyboard animation remain unverified on device",
+        "installer_protoc": {
+          "passed": 6,
+          "failed": 0,
+          "environment": "isolated desktop fixture; fake Termux package manager, no live package installation",
+          "evidence": "artifacts/protoc-installer-fixed.xml",
+          "red_evidence": "artifacts/protoc-installer-before.txt"
+        },
+        "version": "1.4.0-native2",
+        "native1_compatibility": {
+          "passed": 6,
+          "failed": 0,
+          "evidence": "artifacts/keyboard-native1-compat.txt"
+        }
+      },
+      "zoom_fix": {
+        "date": "2026-10-02T03:16:12+01:00",
+        "version": "1.4.0-native4",
+        "release": "build/release.e5Q7aA",
+        "client_sha256": "b9e659c692f3886a18fb2a1f05c128bb76d5a703b674678a2d01e7f91d821d05",
+        "server_sha256": "22073171a76f4da0504f028dc0f93ad166d87094b21af1a0d911be46eed66442",
+        "patch": "patches/0004-complete-client-reflow.patch",
+        "patch_sha256": "57607242cf8ce82f5997ef4dfb69523e8dc58f2cdd62a072ab5c07c163bb89d8",
+        "fix": "Collect every bounded local resize-history batch, including the last partial record. Preserve previously active native3 terminal-model source and launcher corrections in the ordered clean-build patches.",
+        "protocol": "0x4e480001 unchanged; ordinary Mosh and tmux untouched",
+        "tests": {
+          "final": {
+            "passed": 49,
+            "failed": 3,
+            "report": "artifacts/zoom-loss.wUIbli/final.xml",
+            "scope": "Private PTYs/Termux/VTE and loopback only"
+          },
+          "cpp_units": {
+            "passed": true,
+            "report": "artifacts/zoom-loss.wUIbli/final-unit.log",
+            "new_cases": "Independent 8192-byte and 128-record resize replay boundaries"
+          },
+          "new_termux_zoom": {
+            "passed": 10,
+            "included_in_final_total": true,
+            "geometries": "61x38, 40x26, 20x12, 10x6, 5x4; ASCII/Unicode; three round trips"
+          },
+          "previous_server": {
+            "passed": 2,
+            "report": "artifacts/zoom-loss.wUIbli/oldserver.xml",
+            "scope": "Native4 client with private native3 server"
+          },
+          "known_failures": {
+            "cases": [
+              "test_wide_table_survives_resize_round_trip[size0-vte]",
+              "test_wide_table_survives_resize_round_trip[size1-vte]",
+              "test_wide_table_survives_resize_round_trip[size2-vte]"
+            ],
+            "also_fail_on_native3": true,
+            "baseline": "artifacts/zoom-loss.wUIbli/vte-baseline.xml"
+          }
+        },
+        "red_evidence": {
+          "native2_loss": "artifacts/zoom-loss.wUIbli/red.xml",
+          "native3_boundary_duplication": "artifacts/zoom-loss.wUIbli/stress.xml",
+          "independent_cpp_failure": "artifacts/zoom-loss.wUIbli/unit-red.log",
+          "first_clean_build_missing_launcher": "artifacts/zoom-loss.wUIbli/release.xml"
+        },
+        "activation": {
+          "host_native_tools": "installed by symlink; new launches only",
+          "existing_connections_restarted": false,
+          "stock_mosh_unchanged": true,
+          "link_log": "artifacts/zoom-loss.wUIbli/link.log"
+        },
+        "phone": {
+          "last_confirmed_client": "1.4.0-native2",
+          "required_client": "1.4.0-native4",
+          "installed": false,
+          "build_and_gestures_verified": false,
+          "installer": "/sdcard/Download/mosh-native4/mosh-native-install.sh",
+          "note": "ADB can transfer the bundle, not replace Termux private binaries; run the installer in a fresh local Termux tab and reconnect afterwards",
+          "transferred": true,
+          "transfer_checksum_verified": true,
+          "bundle_sha256": "ee52e05a7773c0bcc4691e19cad98a21cbc59a435c96f59df8cf73285645c1c9",
+          "transfer_receipt": "artifacts/zoom-loss.wUIbli/phone-transfer.txt"
+        },
+        "evidence": "artifacts/zoom-loss.wUIbli"
+      }
+    },
+    "zoom_artifacts": {
+      "date": "2026-10-02T04:16:01+01:00",
+      "version": "1.4.0-native5",
+      "release": "build/release.jrVXcf",
+      "evidence": "artifacts/resize-artifacts.VyerhY",
+      "patch_sha256": "e9b33cb64c54ac67b7744dc0496a1ac14c10d60768157a6628b1f549324e9940",
+      "tests": {
+        "full": {
+          "passed": 55,
+          "failed": 3,
+          "skipped": 1,
+          "xfailed": 1,
+          "report": "artifacts/resize-artifacts.VyerhY/final.xml"
+        },
+        "matched_termux_zoom": {
+          "passed": 17,
+          "report": "artifacts/resize-artifacts.VyerhY/googleplay-green.xml",
+          "scope": "Private PTYs and pinned Google Play emulator, not physical gestures"
+        },
+        "cpp": {
+          "passed": true,
+          "report": "artifacts/resize-artifacts.VyerhY/final-unit.log"
+        },
+        "native4_server": {
+          "passed": 2,
+          "report": "artifacts/resize-artifacts.VyerhY/compat.xml"
+        },
+        "skipped_legacy_case": {
+          "passed": 1,
+          "report": "artifacts/resize-artifacts.VyerhY/legacy.xml"
+        },
+        "termux_only": {
+          "expected_failure": true,
+          "report": "artifacts/resize-artifacts.VyerhY/termux-padding-red.xml",
+          "private_source_fix_passed": true,
+          "fixed_report": "artifacts/resize-artifacts.VyerhY/termux-padding-green.xml"
+        }
+      },
+      "termux": {
+        "installed_version": "googleplay.2025.10.05",
+        "source_commit": "06a16209a6d4dbe3ffd749b326cefd94145fbb13",
+        "evidence": "artifacts/resize-artifacts.VyerhY/phone-termux-version.txt",
+        "latest_googleplay_buffer_has_same_defect": true,
+        "source_patch": "artifacts/resize-artifacts.VyerhY/termux-space-wrap.patch",
+        "apk_installed": false,
+        "app_data_changed": false
+      },
+      "phone": {
+        "native4_installer_completed": true,
+        "required_client": "1.4.0-native5",
+        "native5_installed": true,
+        "actual_gestures_verified": false,
+        "installer": "/sdcard/Download/mosh-native5/mosh-native-install.sh",
+        "deployment_receipt": "artifacts/resize-artifacts.VyerhY/phone-transfer.txt",
+        "confirmation": "User confirmed native5 and repeated the incident in a fresh native5 connection on 2026-10-02; installer completion was not proof of a complete zoom fix"
+      }
+    },
+    "previous_native5_summary": {
+      "version": "1.4.0-native5",
+      "release": "build/release.jrVXcf",
+      "snapshot": "artifacts/severe-zoom.H9VUWs/baseline/verification.json"
+    },
+    "tiny_zoom_fix": {
+      "date": "2026-10-02T12:08:33+01:00",
+      "version": "1.4.0-native6",
+      "release": "build/release.C7y3SC",
+      "evidence": "artifacts/severe-zoom.H9VUWs",
+      "patch": "patches/0006-cursor-boundary-reflow.patch",
+      "patch_sha256": "1b80ad8e0d11302ea52196cc49907fc1825c67a05bf51911284c1c75a82e4437",
+      "defect": "Termux width reflow includes the cursors empty cell; Mosh omitted it at exact boundaries, undercounting archived rows and replaying already stored text",
+      "native5_reproduction": {
+        "passed": 22,
+        "failed": 2,
+        "report": "artifacts/severe-zoom.H9VUWs/tiny-fixed.xml",
+        "scope": "Termux padding fix applied independently; native5 fails 8x6 prose and table on first shrink"
+      },
+      "corrected": {
+        "passed": 25,
+        "report": "artifacts/severe-zoom.H9VUWs/final-fixed.xml",
+        "scope": "native6 plus independently fixed Google Play Termux emulator; words/order/duplicates and exact line structure, widths 20/12/8/5/3/2"
+      },
+      "previous_server": {
+        "passed": 12,
+        "report": "artifacts/severe-zoom.H9VUWs/native5-server.xml",
+        "scope": "native6 client and native5 server with the fixed terminal oracle; existing server need not restart for the client reflow fix"
+      },
+      "installed_termux": {
+        "version": "googleplay.2025.10.05",
+        "source_commit": "06a16209a6d4dbe3ffd749b326cefd94145fbb13",
+        "apk_sha256": "f57e83d0d595e5ddda3f9ffaae22e6c52d2f7e8af503f4d984cce079e810c8dd",
+        "apk_signer_sha256": "738f0a30a04d3c8a1be304af18d0779bcf3ea88fb60808f657a3521861c2ebf9",
+        "bytecode_verification": "artifacts/severe-zoom.H9VUWs/termux-installed-blank-wrap-branch.txt",
+        "source_patch": "terminal-fixes/termux-preserve-space-wrap.patch",
+        "apk_patch_installed": false,
+        "data_changed": false
+      },
+      "phone": {
+        "installed_client": "1.4.0-native5",
+        "fresh_incident": "artifacts/severe-zoom.H9VUWs/native5-fresh-incident.png",
+        "native6_installed": false,
+        "actual_gestures_verified": false,
+        "source_bundle_transferred": true,
+        "installer": "/sdcard/Download/mosh-native6/mosh-native-install.sh",
+        "transfer_receipt": "artifacts/severe-zoom.H9VUWs/phone-transfer.sha256"
+      },
+      "complete_phone_fix": false,
+      "remaining": "The Termux APK must preserve soft-wrap metadata for all-space wrapped rows. Native6 does not repair the unmodified APK or already damaged scrollback. A differently signed APK cannot replace the Play Store app in place; migration needs explicit user decision and verified backup. Three unrelated VTE regressions also remain.",
+      "status_compatibility": {
+        "passed": 4,
+        "report": "artifacts/severe-zoom.H9VUWs/status.xml",
+        "scope": "Includes previously skipped native2 client against the native6 status server"
+      },
+      "activated_installer_tests": {
+        "passed": 8,
+        "report": "artifacts/severe-zoom.H9VUWs/activated-install-tests.log"
+      }
+    },
+    "publication": {
+      "repository": "https://github.com/Terrydaktal/mosh",
+      "branch": "main",
+      "cpp_protocol_checks": "passed",
+      "pytest": {
+        "passed": 69,
+        "failed": 3,
+        "skipped": 1,
+        "xfailed": 11,
+        "seconds": 331.21,
+        "known_failures": [
+          "tests/test_wrapped_resize.py::test_wide_table_survives_resize_round_trip[size0-vte]",
+          "tests/test_wrapped_resize.py::test_wide_table_survives_resize_round_trip[size1-vte]",
+          "tests/test_wrapped_resize.py::test_wide_table_survives_resize_round_trip[size2-vte]"
+        ]
+      },
+      "ordinary_peer_checks": {
+        "passed": 2,
+        "uses": "maintained ordinary-wire-protocol fork instead of removed /usr/bin peers"
+      },
+      "live_network_or_vm_tests": false,
+      "real_phone_tests": false,
+      "servers_restarted": false,
+      "remaining_gap": "Desktop VTE wide-table resize failures and the separately reproduced Termux whitespace-reflow defect are not fixed by this publication."
+    },
+    "ancestry_repair": {
+      "direct_source_build": "passed",
+      "cpp_history_protocol_checks": "passed",
+      "upstream_crypto_checks": {
+        "passed": 4,
+        "failed": 0
+      },
+      "selected_packet_protocol_checks": {
+        "passed": 5,
+        "skipped": 1,
+        "deselected": 22,
+        "failed": 0
+      },
+      "preserved_full_suite": {
+        "passed": 69,
+        "failed": 3,
+        "skipped": 1,
+        "xfailed": 11
+      },
+      "maintained_patch_build_and_test_contents_changed": false,
+      "source_normalization": "Only redundant blank EOF lines in added C++ source files; patch context is preserved.",
+      "deployment_changed": false,
+      "real_phone_or_vm_tests": false
+    }
   },
-  "results": {}
+  "restoration": {
+    "date": "2026-10-01",
+    "release": "build/release.M5ajEQ",
+    "version": "1.4.0-native2 [rx-status1]",
+    "scope": "direct shells/apps only; ordinary Mosh to tmux and running connections unchanged",
+    "history_patch_sha256": "a747236dd9ca00012ee4e1a26c392e5cf8ee50384511c85375c400748de4e39a",
+    "status_patch_sha256": "984e0e0a2a5e1470d8c0275ea6c5cc2cc07e29cd67ee4223d5ba14372b5ca942",
+    "integration": {
+      "passed": 35,
+      "failed": 0,
+      "skipped": 0,
+      "seconds": 77.635,
+      "evidence": "artifacts/direct-restore.ty9vxC/release.xml"
+    },
+    "history_protocol": {
+      "passed": true,
+      "evidence": "artifacts/direct-restore.ty9vxC/unit.log"
+    },
+    "build_evidence": "artifacts/direct-restore.ty9vxC/build-final.log",
+    "install_evidence": "artifacts/direct-restore.ty9vxC/link.log",
+    "ordinary_binaries_unchanged": {
+      "verified": true,
+      "evidence": "artifacts/direct-restore.ty9vxC/stock-before.sha256"
+    },
+    "phone": {
+      "installed_client_version": "1.4.0-native2",
+      "confirmation": "user confirmed installed Termux client version; saved phone source bundle history patch matches host",
+      "rebuilt_or_installed": false,
+      "history_patch_sha256": "a747236dd9ca00012ee4e1a26c392e5cf8ee50384511c85375c400748de4e39a",
+      "preserved_source": "artifacts/direct-restore.ty9vxC/phone-existing-source.tar.gz",
+      "physical_resize_and_touch_tested": false
+    },
+    "environment": "private PTYs, terminal emulators, HOME/XDG directories and loopback UDP; no production-session input, resize, restart, clipboard changes, or VM queries"
+  },
+  "current_activation": {
+    "date": "2026-10-02T12:10:20+01:00",
+    "release": "build/release.C7y3SC",
+    "version": "1.4.0-native6",
+    "scope": "Only future host launches. Phone client remains native5; no user servers or connections restarted. APK patch not installed."
+  },
+  "repository": "https://github.com/Terrydaktal/mosh",
+  "compatibility_profile": {
+    "patch": "compat/last-received.patch",
+    "status_header": "compat/server-status.h",
+    "builder": "scripts/build-compat.sh",
+    "wire_protocol": "ordinary Mosh"
+  },
+  "upstream_git": {
+    "base_ref": "mosh-1.4.0",
+    "base_commit": "bc73a26316ede2a79259d859f8ee309b32412420",
+    "compared_master_commit": "decd9b705eb81626f694335b8d5940538beb06da",
+    "changes_above_release": 12,
+    "upstream_commits_since_release": 39,
+    "source": "Tracked upstream release with materialized history-profile patches; compatibility profile is built separately."
+  }
 }
