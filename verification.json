@@ -179,6 +179,15 @@
         "../tmux-simple/tests/test_mosh_status.py",
         "../tmux-simple/tests/test_connection_endpoints.py"
       ]
+    },
+    {
+      "id": "INSTALL-UNIFIED-01",
+      "contract": "Canonical mosh commands and legacy native aliases resolve to identical executables. Owned legacy install links can migrate without replacing regular files or restarting running sessions; retired builders no longer produce a separate protocol.",
+      "tests": [
+        "tests/test_install.py",
+        "tests/test_source_build.py",
+        "../tmux-simple/tests/test_unified_mosh.py"
+      ]
     }
   ],
   "manual_gates": [

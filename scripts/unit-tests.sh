@@ -2,7 +2,7 @@
 set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 binary=$(readlink -f "$root/build/runtime/mosh-native-server")
-source_dir=${MOSH_BUILD:-${binary%/src/frontend/mosh-native-server}}
+source_dir=${MOSH_BUILD:-$(dirname -- "$(dirname -- "$(dirname -- "$binary")")")}
 mkdir -p "$root/build/tests"
 read -r -a flags <<<"$(pkg-config --cflags --libs protobuf ncursesw openssl)"
 includes=()

@@ -12,7 +12,7 @@ if [[ ! -r "$archive" || ! -r "$bundle_dir/mosh-native-source.sha256" ]]; then
 fi
 log="$bundle_dir/mosh-native-install.log"
 exec > >(tee -a "$log") 2>&1
-printf '\nStarting mosh-native client build: %s\n' "$(date -Is)"
+printf '\nStarting unified Mosh client build: %s\n' "$(date -Is)"
 (
 	cd -- "$bundle_dir"
 	sha256sum --check mosh-native-source.sha256
@@ -43,7 +43,7 @@ if ! JOBS=4 bash "$root/scripts/build.sh" --disable-server; then
 	exit 1
 fi
 bash "$root/scripts/link.sh" --upgrade-termux
-printf '\nClient built and linked. Stock Mosh and running sessions were not changed.\n'
-printf 'For a direct shell/app, from a local Termux tab use:\n  ~/.local/bin/mosh-native --server=/home/lewis/.local/bin/mosh-native-server YOUR_HOST -- fish -l\n'
-printf 'For tmux sessions keep using ordinary mosh with /home/lewis/.local/bin/mosh-server.\n'
+printf '\nUnified client built and linked. Running sessions were not changed.\n'
+printf 'For shells, direct apps or tmux, from a local Termux tab use:\n  ~/.local/bin/mosh --server=/home/lewis/.local/bin/mosh-server YOUR_HOST -- fish -l\n'
+printf 'Old mosh-native names use this same build.\n'
 printf 'Build/source directory: %s\n' "$root"

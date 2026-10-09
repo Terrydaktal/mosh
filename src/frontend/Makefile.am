@@ -3,17 +3,17 @@ AM_CXXFLAGS = $(WARNING_CXXFLAGS) $(PICKY_CXXFLAGS) $(HARDEN_CFLAGS) $(MISC_CXXF
 AM_LDFLAGS  = $(HARDEN_LDFLAGS) $(CODE_COVERAGE_LIBS)
 LDADD = ../crypto/libmoshcrypto.a ../network/libmoshnetwork.a ../statesync/libmoshstatesync.a ../terminal/libmoshterminal.a ../util/libmoshutil.a ../protobufs/libmoshprotos.a -lm $(TINFO_LIBS) $(protobuf_LIBS) $(CRYPTO_LIBS)
 
-mosh_native_server_LDADD = $(LDADD)
+mosh_server_LDADD = $(LDADD)
 
 bin_PROGRAMS =
 
 if BUILD_CLIENT
-  bin_PROGRAMS += mosh-native-client
+  bin_PROGRAMS += mosh-client
 endif
 
 if BUILD_SERVER
-  bin_PROGRAMS += mosh-native-server
+  bin_PROGRAMS += mosh-server
 endif
 
-mosh_native_client_SOURCES = mosh-client.cc stmclient.cc stmclient.h nativeviewport.h terminaloverlay.cc terminaloverlay.h
-mosh_native_server_SOURCES = mosh-server.cc
+mosh_client_SOURCES = mosh-client.cc stmclient.cc stmclient.h nativeviewport.h terminaloverlay.cc terminaloverlay.h
+mosh_server_SOURCES = mosh-server.cc

@@ -25,13 +25,28 @@ BUILD = Path(
         "MOSH_BUILD", (ROOT / "build/runtime/mosh-native-server").resolve().parents[2]
     )
 )
-CLIENT = os.environ.get(
-    "MOSH_TEST_CLIENT", str(BUILD / "src/frontend/mosh-native-client")
-)
-SERVER = os.environ.get(
-    "MOSH_TEST_SERVER", str(BUILD / "src/frontend/mosh-native-server")
-)
+CLIENT = os.environ.get("MOSH_TEST_CLIENT", str(BUILD / "src/frontend/mosh-client"))
+SERVER = os.environ.get("MOSH_TEST_SERVER", str(BUILD / "src/frontend/mosh-server"))
 LIBC = ctypes.CDLL(None, use_errno=True)
+
+
+def ordinary_peer(side):
+    """Use an explicitly retained protocol-2 test artifact, never a launch alias."""
+    explicit = os.environ.get(f"MOSH_ORDINARY_{side.upper()}")
+    if explicit:
+        return explicit
+    for directory in sorted((TMUX / "build").glob("mosh-release.*"))[:128]:
+        path = directory / f"src/frontend/mosh-{side}"
+        header = directory / "src/network/network.h"
+        if (
+            path.is_file()
+            and header.is_file()
+            and "MOSH_PROTOCOL_VERSION = 2;" in header.read_text()
+        ):
+            return str(path)
+    raise AssertionError(
+        f"Set MOSH_ORDINARY_{side.upper()} to a retained protocol-2 test fixture"
+    )
 
 
 class Link:
@@ -271,8 +286,8 @@ def test_ordinary_mosh_path_remains_stock_wire_compatible(environment):
 
     session = OrdinarySession(
         environment,
-        client=str(TMUX / "build/runtime/mosh-client"),
-        server=str(TMUX / "build/runtime/mosh-server"),
+        client=ordinary_peer("client"),
+        server=ordinary_peer("server"),
         program=[sys.executable, str(ROOT / "tests/workload.py"), str(environment)],
     )
     try:
@@ -288,7 +303,7 @@ def test_ordinary_mosh_path_remains_stock_wire_compatible(environment):
 
 
 def test_wrapper_resolves_its_own_client_outside_path(environment):
-    script = BUILD / "scripts/mosh-native"
+    script = BUILD / "scripts/mosh"
     result = subprocess.run(
         [str(script), "--help"],
         capture_output=True,
@@ -297,7 +312,7 @@ def test_wrapper_resolves_its_own_client_outside_path(environment):
         check=False,
     )
     assert result.returncode == 0
-    assert b"mosh-native-server" in result.stdout
+    assert b'"mosh-server"' in result.stdout
 
 
 @pytest.mark.parametrize("kind", ["termux", "vte"])
@@ -348,12 +363,7 @@ def test_resize_after_delivery_and_before_any_history(environment, kind):
 def test_ordinary_peer_is_rejected(environment, ordinary_side):
     session = None
     try:
-        peer = {
-            ordinary_side: os.environ.get(
-                f"MOSH_ORDINARY_{ordinary_side.upper()}",
-                str(TMUX / f"build/runtime/mosh-{ordinary_side}"),
-            )
-        }
+        peer = {ordinary_side: ordinary_peer(ordinary_side)}
         session = Session(environment, **peer)
         app = session.attachment
         state = app.until(
@@ -417,7 +427,7 @@ def test_real_wrapper_launches_matching_client_without_path_entry(environment, k
         backend,
         kind=kind,
         argv=[
-            str(BUILD / "scripts/mosh-native"),
+            str(BUILD / "scripts/mosh"),
             "--local",
             f"--server={SERVER}",
             "127.0.0.1",

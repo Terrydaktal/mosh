@@ -24,13 +24,13 @@ fi
 )
 if [[ -n ${PREFIX:-} && -x "$PREFIX/bin/perl" ]]; then
 	# Android has no /usr/bin/env. Do not depend on Termux exec interposition.
-	sed -i "1c#!$PREFIX/bin/perl" "$work/scripts/mosh-native"
+	sed -i "1c#!$PREFIX/bin/perl" "$work/scripts/mosh"
 fi
-names=(mosh-native mosh-native-client)
-targets=("$work/scripts/mosh-native" "$work/src/frontend/mosh-native-client")
-if [[ -x "$work/src/frontend/mosh-native-server" ]]; then
-	names+=(mosh-native-server)
-	targets+=("$work/src/frontend/mosh-native-server")
+names=(mosh mosh-client mosh-native mosh-native-client)
+targets=("$work/scripts/mosh" "$work/src/frontend/mosh-client" "$work/scripts/mosh" "$work/src/frontend/mosh-client")
+if [[ -x "$work/src/frontend/mosh-server" ]]; then
+	names+=(mosh-server mosh-native-server)
+	targets+=("$work/src/frontend/mosh-server" "$work/src/frontend/mosh-server")
 fi
 for name in "${names[@]}"; do
 	if [[ -e "$runtime/$name" && ! -L "$runtime/$name" ]]; then
@@ -38,8 +38,14 @@ for name in "${names[@]}"; do
 		exit 1
 	fi
 done
+for target in "${targets[@]}"; do
+	[[ -x "$target" ]] || {
+		printf 'Build did not produce executable: %s\n' "$target" >&2
+		exit 1
+	}
+done
+sha256sum "$work/SOURCE-SHA256SUMS" "${targets[@]}" >"$work/BUILD-SHA256SUMS"
 for i in "${!names[@]}"; do
 	ln -sfn -- "${targets[$i]}" "$runtime/${names[$i]}"
 done
-sha256sum "$work/SOURCE-SHA256SUMS" "${targets[@]}" >"$work/BUILD-SHA256SUMS"
 printf 'Built: %s\nBuild logs: %s\n' "$runtime" "$work"

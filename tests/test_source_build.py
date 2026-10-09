@@ -113,8 +113,8 @@ def test_builder_uses_current_source_and_publishes_only_after_success(tmp_path, 
         if failed
         else (
             "mkdir -p scripts src/frontend\n"
-            "for file in tmux scripts/mosh-native src/frontend/mosh-native-client "
-            'src/frontend/mosh-native-server; do cp payload "$file"; chmod +x "$file"; done\n'
+            "for file in tmux scripts/mosh src/frontend/mosh-client "
+            'src/frontend/mosh-server; do cp payload "$file"; chmod +x "$file"; done\n'
         ),
     )
     runtime = tmp_path / "runtime"

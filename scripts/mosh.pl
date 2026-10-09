@@ -62,8 +62,8 @@ my $have_ipv6 = eval {
 
 $|=1;
 
-my $client = "$RealBin/../src/frontend/mosh-native-client";
-my $server = 'mosh-native-server';
+my $client = "$RealBin/../src/frontend/mosh-client";
+my $server = 'mosh-server';
 
 my $predict = undef;
 
@@ -92,9 +92,9 @@ my @cmdline = @ARGV;
 my $usage =
 qq{Usage: $0 [options] [--] [user@]host [command...]
         --client=PATH        mosh client on local machine
-                                (default: sibling native-history client)
+                                (default: sibling history-aware client)
         --server=COMMAND     mosh server on remote machine
-                                (default: "mosh-native-server")
+                                (default: "mosh-server")
 
         --predict=adaptive      local echo for slower links [default]
 -a      --predict=always        use local echo even on fast links

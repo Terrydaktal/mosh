@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+RUNTIME = Path(os.environ.get("BUILD_RUNTIME", ROOT / "build/runtime"))
 
 
 def test_link_install_is_symlink_only_and_idempotent(tmp_path):
@@ -17,18 +18,33 @@ def test_link_install_is_symlink_only_and_idempotent(tmp_path):
             [str(ROOT / "scripts/link.sh"), str(destination)],
             capture_output=True,
             timeout=5,
+            check=False,
         )
         assert result.returncode == 0, result.stderr
-        for name in ("mosh-native", "mosh-native-client", "mosh-native-server"):
+        for name in (
+            "mosh",
+            "mosh-client",
+            "mosh-server",
+            "mosh-native",
+            "mosh-native-client",
+            "mosh-native-server",
+        ):
             assert (destination / name).is_symlink()
-            assert os.readlink(destination / name) == str(ROOT / "build/runtime" / name)
+            assert os.readlink(destination / name) == str(RUNTIME / name)
+        for suffix in ("", "-client", "-server"):
+            assert (destination / ("mosh" + suffix)).resolve() == (
+                destination / ("mosh-native" + suffix)
+            ).resolve()
 
 
 def test_conflict_is_preserved_without_partial_install(tmp_path):
     protected = tmp_path / "mosh-native-client"
     protected.write_text("unrelated user file")
     result = subprocess.run(
-        [str(ROOT / "scripts/link.sh"), str(tmp_path)], capture_output=True, timeout=5
+        [str(ROOT / "scripts/link.sh"), str(tmp_path)],
+        capture_output=True,
+        timeout=5,
+        check=False,
     )
     assert result.returncode != 0
     assert protected.read_text() == "unrelated user file"
@@ -44,6 +60,7 @@ def test_phone_installer_refuses_desktop_without_running_package_manager(tmp_pat
         env=environment,
         capture_output=True,
         timeout=5,
+        check=False,
     )
     assert result.returncode != 0
     assert b"inside a local Termux" in result.stderr
@@ -117,6 +134,7 @@ def test_phone_installer_installs_and_checks_compiler(tmp_path, compiler):
         env=environment,
         capture_output=True,
         timeout=10,
+        check=False,
     )
     assert "protobuf" in (home / "packages").read_text().splitlines()
     if compiler == "working":
@@ -159,9 +177,10 @@ def test_termux_upgrade_only_replaces_owned_links(tmp_path, foreign):
         env=environment,
         capture_output=True,
         timeout=5,
+        check=False,
     )
     assert (result.returncode != 0) == foreign, result.stderr
     for name in names:
         assert (old_runtime / name).read_text() == "old binary left in place"
-        expected = previous[name] if foreign else str(ROOT / "build/runtime" / name)
+        expected = previous[name] if foreign else str(RUNTIME / name)
         assert os.readlink(destination / name) == expected

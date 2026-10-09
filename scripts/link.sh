@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+runtime=${BUILD_RUNTIME:-"$root/build/runtime"}
 upgrade_termux=0
 if [[ ${1:-} == --upgrade-termux ]]; then
 	upgrade_termux=1
@@ -18,18 +19,25 @@ owned_termux_link() {
 	old_root=${previous%/build/runtime/"$name"}
 	[[ "$old_root/build/runtime/$name" == "$previous" ]] || return 1
 	[[ ${old_root%/*} == "$HOME/.local/share" ]] || return 1
-	[[ ${old_root##*/} =~ ^mosh-native\.[[:alnum:]]{6}$ ]] || return 1
+	[[ ${old_root##*/} =~ ^mosh(-native)?\.[[:alnum:]]{6}$ ]] || return 1
 	[[ -d "$old_root" && ! -L "$old_root" && -O "$old_root" ]] || return 1
 	[[ -r "$old_root/verification.json" ]] || return 1
-	grep -Eq '"product"[[:space:]]*:[[:space:]]*"mosh-native"' "$old_root/verification.json"
+	grep -Eq '"product"[[:space:]]*:[[:space:]]*"mosh(-native)?"' "$old_root/verification.json"
 }
 
-names=(mosh-native mosh-native-client)
-if [[ -x "$root/build/runtime/mosh-native-server" ]]; then
-	names+=(mosh-native-server)
+owned_host_compat_link() {
+	local name=$1 previous=$2 legacy_root
+	legacy_root=$(cd -- "$root/../tmux-simple" 2>/dev/null && pwd) || return 1
+	[[ $previous == "$legacy_root/build/runtime/$name" ]] || return 1
+	[[ -L "$previous" && -O "$previous" ]]
+}
+
+names=(mosh mosh-client mosh-native mosh-native-client)
+if [[ -x "$runtime/mosh-server" ]]; then
+	names+=(mosh-server mosh-native-server)
 fi
 for name in "${names[@]}"; do
-	target="$root/build/runtime/$name"
+	target="$runtime/$name"
 	[[ -x "$target" ]] || {
 		printf 'Build first: %s\n' "$root/scripts/build.sh" >&2
 		exit 1
@@ -40,7 +48,7 @@ for name in "${names[@]}"; do
 			exit 1
 		fi
 		previous=$(readlink -- "$destination/$name")
-		if [[ $previous != "$target" ]] && ! owned_termux_link "$name" "$previous"; then
+		if [[ $previous != "$target" ]] && ! owned_termux_link "$name" "$previous" && ! owned_host_compat_link "$name" "$previous"; then
 			printf 'Refusing to replace unrelated symlink: %s\n' "$destination/$name" >&2
 			exit 1
 		fi
@@ -48,6 +56,6 @@ for name in "${names[@]}"; do
 done
 mkdir -p -- "$destination"
 for name in "${names[@]}"; do
-	ln -sfn -- "$root/build/runtime/$name" "$destination/$name"
+	ln -sfn -- "$runtime/$name" "$destination/$name"
 done
-printf 'Linked separate native-history tools in %s; stock Mosh is unchanged.\n' "$destination"
+printf 'Linked unified Mosh tools in %s; mosh-native names are aliases to the same build. Running sessions are unchanged.\n' "$destination"
