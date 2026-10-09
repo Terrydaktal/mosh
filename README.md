@@ -7,29 +7,29 @@ with the maintained source and build tooling on `main`.
 (`bc73a26316ede2a79259d859f8ee309b32412420`). Upstream source and history
 are retained, and the history-profile changes live directly in the tracked
 source. The main builder compiles a fresh snapshot of that working tree; the
-ordinary-protocol profile remains independently built from that archive.
+same build is used for direct applications and tmux.
 The initial published series has twelve changes on top of that release. Commits added to upstream
 `master` after 1.4.0 remain separate until the fork changes are ported and verified.
-The `mosh-native` executable and local directory names identify the history-aware
-protocol profile and remain compatible with existing client commands.
-The `compat/` directory also records the ordinary-protocol packet-age profile
-used by tmux; `scripts/build-compat.sh` builds that profile independently.
+The local source directory still has its historical `mosh-native` name. The
+`mosh-native`, `mosh-native-client` and `mosh-native-server` commands are aliases
+to the exact same executables as `mosh`, `mosh-client` and `mosh-server`.
+The old `compat/` files are retained as historical source; `scripts/build-compat.sh`
+now forwards to the unified source builder instead of producing another protocol.
 
-Mosh 1.4.0 client/server extension for native terminal scrollback and resize-safe
-rendering in direct shell/app connections. Both endpoints must use the native
-history protocol; it is not wire-compatible with ordinary Mosh. The separate
-compatibility fork used for tmux keeps that ordinary protocol and adds packet-age
-reporting. Host `mosh`, `mosh-client` and `mosh-server` now use that fork's build,
-not distro binaries. Its running sessions are not restarted by changing links.
+Mosh 1.4.0 fork with native scrollback, resize-safe direct output and
+authenticated packet-age reporting. Both endpoints use this fork's history
+protocol, not the upstream ordinary protocol. There is one client build and one
+server build, not an app-specific choice. Changing installation links never
+restarts existing sessions.
 
 ## Use
 
 For a direct shell, run from a fresh local Termux tab:
 
 ```sh
-~/.local/bin/mosh-native \
+~/.local/bin/mosh \
   --ssh="ssh -p 22 -i $HOME/storage/downloads/Telegram/client_lewis_key" \
-  --server=/home/lewis/.local/bin/mosh-native-server \
+  --server=/home/lewis/.local/bin/mosh-server \
   lewis@100.74.187.127 -- fish -l
 ```
 
@@ -38,7 +38,7 @@ authentication and the history-aware Mosh transport afterward. Replace `fish -l`
 with a direct app command if preferred. An explicit `--server` avoids depending
 on the remote login shell's PATH.
 
-For a tmux session keep using ordinary Mosh instead:
+For tmux use the same command and server:
 
 ```sh
 mosh --server=/home/lewis/.local/bin/mosh-server YOUR_HOST -- \
@@ -46,19 +46,12 @@ mosh --server=/home/lewis/.local/bin/mosh-server YOUR_HOST -- \
   attach-session -t diet
 ```
 
-The native path is for direct shells/apps, not tmux. No tmux sizing monitor is
-involved: the direct application's PTY follows its single Mosh client's terminal
-dimensions. Keyboard and zoom resize bursts settle for 120 ms before rendering
-the matching remote geometry, with retained output restored into local scrollback.
-Native history rendering already avoids entering the alternate screen;
-`--no-init` is not required and is not itself a scrollback/resize fix.
-
-The October 2026 server adds authenticated packet-age reporting without changing
-the native wire protocol. Old clients can still connect, but protocol compatibility
-does not imply safe wide-output resizing: the native2 client loses some text after
-zoom round trips. Use the native6 client on Termux for the current resize replay
-fix. Fresh native connections use the linked host server; existing servers do not
-upgrade in place.
+Direct applications follow their single client's terminal dimensions, with a
+120 ms resize settling window. `--no-init` is not required. The unified release
+is `1.4.0-fork9`; both endpoints must be updated to honor explicit history
+replacement. Older native clients can connect but cannot handle a new history
+generation. Ordinary-protocol clients must be updated. Neither endpoint upgrades
+in place.
 
 Direct Mosh survives network interruptions, but a new direct connection starts a
 new shell/app; it does not reattach to the old program. Deliberately ending the
@@ -73,7 +66,6 @@ mouse reporting still own mouse events while that reporting is active.
 
 Desktop prerequisites: C++17 compiler, make, autoconf, automake, pkg-config,
 protoc/protobuf development files, OpenSSL, ncurses, zlib, Perl, Git and tar.
-Only the separate ordinary-protocol compatibility build also needs curl and patch.
 
 ```sh
 scripts/build.sh
@@ -102,8 +94,8 @@ bash /sdcard/Download/mosh-native-install.sh
 
 The installer verifies the bundle, installs build dependencies using Termux's
 package manager, builds only the client in a fresh private directory, and
-creates separate native-tool symlinks. It does not overwrite ordinary Mosh or
-alter running Termux sessions. The bundle's `SOURCE-FILES` manifest lets the builder
+creates unified-tool symlinks plus the legacy native aliases. It does not alter
+running Termux sessions or package-manager files. The bundle's `SOURCE-FILES` manifest lets the builder
 work without Git, an upstream source download or Mosh patch replay. Termux needs
 permission to read shared storage.
 It installs both `libprotobuf` (the library) and `protobuf` (the `protoc`
@@ -123,14 +115,36 @@ do not stop the persistent tmux session or its program.
 Check the phone client from a local Termux tab:
 
 ```sh
-~/.local/bin/mosh-native-client --version
+~/.local/bin/mosh-client --version
 ```
 
-The current client is `1.4.0-native6`. Updating
+The current build is `1.4.0-fork9`. Older clients, including native5 and fork8,
+must be updated to honor a direct application's explicit scrollback purge.
+Updating
 only the host server cannot replace the client's local scrollback replay code.
 The installer keeps old binaries for running connections; reconnect from the
 local Termux tab to start using the new client. A fresh direct connection creates
 a new shell, so finish valuable work before deliberately closing its predecessor.
+
+### Direct-App Transcript Rebuilds
+
+Codex clears saved lines with `CSI 3 J` before replaying its source-backed chat,
+including on height-only keyboard resizes. Earlier Mosh builds ignored that
+request and appended the replacement transcript to the old history, producing
+duplicate banners and messages. Fork9 carries a monotonically numbered history
+generation, purges the local saved lines once, and drops obsolete resize/replay
+caches before accepting replacement records. Record numbers remain monotonic,
+so delayed acknowledgements cannot discard new output. Empty clears are delivered
+even when no screen cells change; duplicate or older generations cannot replay.
+
+Only an explicit main-screen purge triggers this behavior. Alternate-screen
+requests cannot purge saved main-screen history. The isolated regressions check
+full-screen transcript contents and prompt placement across keyboard-height and
+width round trips with real Termux and VTE emulators, including packet loss and
+duplication.
+Physical phone behavior still needs checking with the updated client; a host-only
+update cannot fix native5's local renderer or establish the cause of every blank
+area in a screenshot.
 
 Native3 handles ordinary wrapped resizes, but its resize archive retained only
 the first network batch. At very narrow widths, especially with Unicode output,
@@ -214,7 +228,7 @@ decision. Mosh's installer does not modify Termux app data or close live session
    terminal that does not reply within 250 ms falls back to the existing estimate.
 4. After a network interruption, the existing Mosh connection resumes delivery
    from that cursor. Starting a fresh direct connection starts a new server/app;
-   persistent tmux reattachment uses the separate ordinary-Mosh path.
+   persistent tmux reattachment uses the same Mosh build with a tmux command.
 5. A finite command's EOF waits for outstanding history to drain. Explicit
    client shutdown and Mosh's configured network timeout can cancel that wait.
 
@@ -238,7 +252,7 @@ service. A separate protocol ID prevents silent mixing with stock endpoints.
 - A disconnected client can leave an EOF-draining server alive until it resumes
   or a configured `MOSH_SERVER_NETWORK_TMOUT` expires. Retained memory is bounded.
 - No stock-Mosh compatibility fallback. If a peer reports a protocol mismatch,
-  use native builds on both sides or the working SSH path.
+  use this fork on both sides or the working SSH path.
 - Actual Android build/install, touch gestures, clipboard UI, cellular roaming,
   complex width/Unicode reflow and long-duration load require device validation.
   Tests cover short records, long ASCII/Unicode records and repeated Termux
@@ -274,8 +288,8 @@ Status requests and invalid/replayed packets cannot change that peer or refresh
 its age. IPv6 scopes are numeric, and no DNS resolution or packet logging is
 added. The phone client and native history protocol are unchanged.
 
-`tmux-mosh clients` recognizes native servers as `mosh (PID)` / `direct`, reports
-their packet `IDLE`, foreground app/command and PTY size. `tmux-mosh cleanup
+`tmux-mosh clients` recognizes native servers as `mosh` / `direct`, reports
+their packet `IDLE`, foreground app/PID, separately named socket endpoints and PTY size. `tmux-mosh cleanup
 --dry-run` previews cleanup using the same packet timestamp; actual cleanup can
 terminate a direct app. Old native servers without this patch keep running but
 cannot expose an exact packet age; start a fresh connection to use the new build.

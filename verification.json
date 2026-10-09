@@ -60,7 +60,7 @@
       "id": "COMPAT-01",
       "contract": "stock protocol peers are explicitly rejected",
       "tests": [
-        "tests/test_terminal.py::test_stock_peer_is_rejected"
+        "tests/test_terminal.py::test_ordinary_peer_is_rejected"
       ]
     },
     {
@@ -112,9 +112,9 @@
     },
     {
       "id": "COMPAT-03",
-      "contract": "the previously installed native2 client works with the rebuilt packet-reporting server without any history or wire-protocol change",
+      "contract": "Previously installed native clients retain direct-output history and authenticated packet-age reporting with the unified server; generation-aware history replacement requires the updated client.",
       "tests": [
-        "tests/test_status.py::test_packet_age_inventory_and_cleanup_work_with_direct_history[existing-native2]"
+        "tests/test_status.py::test_packet_age_inventory_and_cleanup_work_with_direct_history"
       ]
     },
     {
@@ -207,11 +207,12 @@
     "Full upstream terminal-emulation suite",
     "Wrapped live viewport reflow and arbitrary resize interleavings",
     "Native6 must be built/started in a fresh local Termux tab; installed phone client remains native5 at this snapshot",
-    "Complete extreme-zoom table alignment requires the separate Termux APK patch; no APK migration or data change is authorized/performed by this work"
+    "Complete extreme-zoom table alignment requires the separate Termux APK patch; no APK migration or data change is authorized/performed by this work",
+    "Fork9 direct Codex keyboard-close blank-area verification on the physical phone, after replacing its confirmed native5 client; not reproduced by the isolated full-height workload."
   ],
   "results": {
-    "date": "2026-10-02T04:16:01+01:00",
-    "release": "build/release.C7y3SC",
+    "date": "2026-10-09T02:39:25+01:00",
+    "release": "build/release.OJHOKq",
     "patch_sha256": "e9b33cb64c54ac67b7744dc0496a1ac14c10d60768157a6628b1f549324e9940",
     "desktop_integration": {
       "passed": 69,
@@ -253,7 +254,7 @@
       "evidence": "artifacts/protoc-installer-fixed.xml",
       "red_evidence": "artifacts/protoc-installer-before.txt"
     },
-    "version": "1.4.0-native6",
+    "version": "1.4.0-fork9",
     "native1_compatibility": {
       "passed": 6,
       "failed": 0,
@@ -716,6 +717,48 @@
       "neighbor_tests_deselected": 15,
       "neighbor_report": "../tmux-simple/artifacts/socket-peer.VwUssd/native-neighbors.xml",
       "red_evidence": "../tmux-simple/artifacts/socket-peer.VwUssd/old-server-missing-endpoints.log"
+    },
+    "direct_codex_rebuild": {
+      "date": "2026-10-09T02:39:25+01:00",
+      "version": "1.4.0-fork9",
+      "release": "build/release.OJHOKq",
+      "baseline_failed": 4,
+      "baseline_evidence": "artifacts/direct-codex.2KNZlA/baseline-corrected-oracle.txt",
+      "loopback_passed": 56,
+      "loopback_evidence": "artifacts/direct-codex.2KNZlA/final.xml",
+      "terminal_checks_passed": 29,
+      "terminal_evidence": "artifacts/direct-codex.2KNZlA/oracles.xml",
+      "cpp_passed": true,
+      "cpp_evidence": "artifacts/direct-codex.2KNZlA/final-unit.txt",
+      "scope": "Private PTYs, loopback UDP, independent Termux/VTE emulators and private real tmux servers. No user session restarts, live VM tests or network discovery scans. These working-tree results include the explicitly deferred composer and screen-ownership features; the committed subset is separately verified before publication.",
+      "host_activated": true,
+      "phone_last_confirmed_version": "1.4.0-native5",
+      "phone_installed": false,
+      "phone_bundle": "build/termux-bundle",
+      "phone_transfer": "ADB connection to the previously supplied phone address was refused; local Termux SCP/install remains required.",
+      "remaining_limits": [
+        "Physical phone blank-bottom symptom not reproduced or claimed fixed",
+        "Both endpoints must run fork9 for explicit history replacement; a fresh connection using native5 is not an updated client",
+        "Previously documented extreme-zoom terminal limitations unchanged"
+      ]
+    },
+    "previous_reported_release_before_unification": {
+      "version": "1.4.0-native6",
+      "release": "build/release.C7y3SC",
+      "date": "2026-10-02T04:16:01+01:00"
+    },
+    "previous_reported_release_before_direct_rebuild": {
+      "date": "2026-10-08T12:46:36+01:00",
+      "release": "build/release.4dbq3g",
+      "version": "1.4.0-fork8"
+    },
+    "committed_subset": {
+      "scope": "Selectively exported index: composer-region recording and automatic main/alternate-screen ownership changes excluded. Private PTYs and loopback only; installed links and user sessions unchanged.",
+      "cpp_passed": true,
+      "pytest_passed": 21,
+      "pytest_skipped": 1,
+      "evidence": "artifacts/commit-pending.L6lexS/staged-tests.xml",
+      "build": "artifacts/commit-pending.L6lexS/export/mosh-native/build/release.xiyVxh"
     }
   },
   "restoration": {
@@ -753,10 +796,10 @@
     "environment": "private PTYs, terminal emulators, HOME/XDG directories and loopback UDP; no production-session input, resize, restart, clipboard changes, or VM queries"
   },
   "current_activation": {
-    "date": "2026-10-02T12:10:20+01:00",
-    "release": "build/release.C7y3SC",
-    "version": "1.4.0-native6",
-    "scope": "Only future host launches. Phone client remains native5; no user servers or connections restarted. APK patch not installed."
+    "date": "2026-10-09T02:39:25+01:00",
+    "release": "build/release.OJHOKq",
+    "version": "1.4.0-fork9",
+    "scope": "Future host launches only, installed through existing symlinks. Existing Mosh/tmux/client processes preserved; phone client and APK unchanged. This deployment describes the existing working-tree build, including history features intentionally deferred from the committed source."
   },
   "repository": "https://github.com/Terrydaktal/mosh",
   "compatibility_profile": {
