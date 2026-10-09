@@ -341,7 +341,8 @@ void STMClient::output_new_frame( void )
   frame += display.new_frame(!repaint_requested, local_framebuffer, new_state);
   if (!frame.empty() && swrite(STDOUT_FILENO, frame.data(), frame.size()) < 0)
     throw std::runtime_error("failed to write native terminal frame");
-  if (history.end() > history_replay.acknowledged()) {
+  if (history.generation > history_replay.reset_generation()
+      || history.end() > history_replay.acknowledged()) {
     history_replay.commit(history);
     network->get_current_state().acknowledge_history(history_replay.acknowledged());
   }

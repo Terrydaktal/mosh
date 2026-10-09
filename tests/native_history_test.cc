@@ -66,6 +66,64 @@ static void transfer()
   assert(transcript.find("\033[?1049h") == std::string::npos);
 }
 
+static void history_replacement()
+{
+  Complete server(40, 8), client(40, 8);
+  server.enable_history();
+  server.act(lines(100) + std::string(8, '\n'));
+  client.apply_string(server.init_diff());
+  HistoryReplay replay;
+  const auto old_batch = client.get_history();
+  replay.prepare(old_batch, 8);
+  replay.commit(old_batch);
+  replay.remember_resize(client.get_fb(), 20, 4);
+  assert(replay.rows_at_width(40) > 0);
+
+  // An empty clear changes no visible cells but must still cross the network.
+  const Complete before(server);
+  server.act("\033[3J");
+  assert(server.get_fb() == before.get_fb());
+  assert(!(server == before));
+  client.apply_string(server.diff_from(before));
+  const auto cleared = client.get_history();
+  assert(cleared.generation == 1 && cleared.records.empty());
+  assert(cleared.first == old_batch.end());
+  assert(replay.prepare(cleared, 8).find("\033[3J") != std::string::npos);
+  replay.commit(cleared);
+  assert(replay.rows_at_width(40) == 0);
+  assert(replay.prepare(cleared, 8).empty());
+  assert(replay.prepare(old_batch, 8).empty());
+  replay.commit(old_batch);
+  assert(replay.reset_generation() == 1);
+
+  // A delayed pre-clear ACK must not acknowledge any of the replacement lines.
+  server.acknowledge_history(old_batch.end());
+  server.act(lines(300) + std::string(8, '\n'));
+  std::string transcript;
+  for (int round = 0; round < 10; ++round) {
+    client.apply_string(server.init_diff());
+    const auto batch = client.get_history();
+    transcript += replay.prepare(batch, 8);
+    replay.commit(batch);
+    server.acknowledge_history(replay.acknowledged());
+  }
+  for (int i = 0; i < 300; ++i)
+    assert(occurrences(transcript, "record-" + std::to_string(i) + "-end") == 1);
+  assert(transcript.find("expired while disconnected") == std::string::npos);
+
+  // Tmux/vim clearing their own screen cannot purge the shell's saved history.
+  const auto direct = server.get_history();
+  server.act("\033[?1049h\033[3J" + lines(100) + "\033[?1049l");
+  assert(server.get_history() == direct);
+
+  Complete partial(5, 2);
+  partial.enable_history();
+  partial.act("abcdefghijk");
+  assert(partial.get_fb().get_history_log()->has_pending());
+  partial.act("\033[3J");
+  assert(!partial.get_fb().get_history_log()->has_pending());
+}
+
 static void bounds()
 {
   Complete server(80, 4);
@@ -286,6 +344,7 @@ int main()
 {
   std::setlocale(LC_ALL, "C.UTF-8");
   transfer();
+  history_replacement();
   bounds();
   modes();
   resize_bursts();

@@ -13,14 +13,14 @@ namespace Terminal {
     static const size_t MAX_RECORD = 32768;
     static const size_t MAX_BYTES = 8192;
     static const size_t MAX_RECORDS = 128;
-    uint64_t first;
+    uint64_t first, generation;
     std::vector<std::string> records;
 
-    HistoryBatch() : first(0), records() {}
+    HistoryBatch() : first(0), generation(0), records() {}
     uint64_t end() const { return first + records.size(); }
     bool valid() const;
     bool operator==(const HistoryBatch &other) const {
-      return first == other.first && records == other.records;
+      return first == other.first && generation == other.generation && records == other.records;
     }
   };
 
@@ -28,17 +28,18 @@ namespace Terminal {
   // is immutable; the bounded recorder itself is never synchronized or copied.
   class HistoryLog {
     std::deque<std::string> records;
-    uint64_t first;
+    uint64_t first, generation;
     size_t bytes, max_bytes, max_records;
     std::string pending;
     bool overlong;
     void finish_line();
   public:
     HistoryLog(size_t byte_limit = 8 * 1024 * 1024, size_t record_limit = 100000)
-      : records(), first(0), bytes(0), max_bytes(byte_limit),
+      : records(), first(0), generation(0), bytes(0), max_bytes(byte_limit),
         max_records(record_limit), pending(), overlong(false) {}
     void append_row(const Row &row);
     void break_line();
+    void clear();
     HistoryBatch after(uint64_t acknowledged) const;
     uint64_t end() const { return first + records.size(); }
     size_t retained_bytes() const { return bytes; }
@@ -46,7 +47,7 @@ namespace Terminal {
   };
 
   class HistoryReplay {
-    uint64_t next;
+    uint64_t next, generation;
     std::deque<std::string> delivered;
     std::vector<std::string> preserved;
     size_t delivered_bytes;
@@ -57,10 +58,11 @@ namespace Terminal {
     size_t preserved_count(const HistoryBatch &batch) const;
     size_t preserved_bytes(const HistoryBatch &batch) const;
   public:
-    explicit HistoryReplay(bool termux_resize = false) : next(0), delivered(), preserved(),
+    explicit HistoryReplay(bool termux_resize = false) : next(0), generation(0), delivered(), preserved(),
       delivered_bytes(0), preserved_partial(false), termux_reflow(termux_resize),
       cached_width(0), cached_rows(0) {}
     uint64_t acknowledged() const { return next; }
+    uint64_t reset_generation() const { return generation; }
     bool uses_termux_reflow() const { return termux_reflow; }
     // Does not advance the acknowledgement until commit(), after stdout drains.
     std::string prepare(const HistoryBatch &batch, int height) const;

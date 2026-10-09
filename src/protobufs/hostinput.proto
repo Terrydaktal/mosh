@@ -28,6 +28,7 @@ message EchoAck {
 message NativeHistory {
   optional uint64 first = 1;
   repeated bytes record = 2;
+  optional uint64 generation = 4;
 }
 
 extend Instruction {

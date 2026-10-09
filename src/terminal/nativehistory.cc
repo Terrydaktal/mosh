@@ -39,6 +39,17 @@ void HistoryLog::break_line()
   if (!pending.empty() || overlong) finish_line();
 }
 
+void HistoryLog::clear()
+{
+  // Keep record numbers monotonic so a delayed ACK cannot skip rebuilt history.
+  first = end();
+  records.clear();
+  bytes = 0;
+  pending.clear();
+  overlong = false;
+  ++generation;
+}
+
 void HistoryLog::append_row(const Row &row)
 {
   const bool wrapped = row.get_wrap();
@@ -67,6 +78,7 @@ void HistoryLog::append_row(const Row &row)
 HistoryBatch HistoryLog::after(uint64_t acknowledged) const
 {
   HistoryBatch batch;
+  batch.generation = generation;
   batch.first = std::max(first, std::min(acknowledged, end()));
   size_t bytes = 0;
   for (size_t i = batch.first - first; i < records.size(); ++i) {
@@ -95,20 +107,23 @@ std::string HistoryReplay::clear_viewport(int height)
 std::string HistoryReplay::prepare(const HistoryBatch &batch, int height) const
 {
   if (!batch.valid()) throw std::invalid_argument("invalid native history batch");
-  if (batch.end() <= next) return "";
+  if (batch.generation < generation) return "";
+  const bool reset = batch.generation > generation;
+  if (!reset && batch.end() <= next) return "";
   std::string output;
-  if (batch.first > next) {
+  if (!reset && batch.first > next) {
     char notice[128];
     snprintf(notice, sizeof(notice), "[mosh-native: %llu history records expired while disconnected]\r\n",
              static_cast<unsigned long long>(batch.first - next));
     output += notice;
   }
   const size_t start = next > batch.first ? next - batch.first : 0;
-  const size_t skipped = start + preserved_count(batch);
+  const size_t skipped = start + (reset ? 0 : preserved_count(batch));
   for (size_t i = skipped; i < batch.records.size(); ++i)
-    output += batch.records[i].substr(i == skipped ? preserved_bytes(batch) : 0);
-  if (output.empty()) return "";
-  output = clear_viewport(height) + output;
+    output += batch.records[i].substr(!reset && i == skipped ? preserved_bytes(batch) : 0);
+  // Only an explicit main-screen ED 3 may purge the local terminal's scrollback.
+  if (output.empty()) return reset ? "\033[3J" + clear_viewport(height) : "";
+  output = (reset ? "\033[3J" : "") + clear_viewport(height) + output;
   output += "\033[0m";
   for (int i = 1; i < height; ++i) output += "\r\n";
   return output;
@@ -117,6 +132,17 @@ std::string HistoryReplay::prepare(const HistoryBatch &batch, int height) const
 void HistoryReplay::commit(const HistoryBatch &batch)
 {
   if (!batch.valid()) throw std::invalid_argument("invalid native history batch");
+  if (batch.generation < generation) return;
+  if (batch.generation > generation) {
+    generation = batch.generation;
+    next = std::max(next, batch.first);
+    delivered.clear();
+    preserved.clear();
+    delivered_bytes = 0;
+    preserved_partial = false;
+    cached_width = 0;
+    cached_rows = 0;
+  }
   if (batch.end() <= next) return;
   const size_t start = next > batch.first ? next - batch.first : 0;
   const size_t kept = preserved_count(batch);

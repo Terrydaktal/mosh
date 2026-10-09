@@ -107,6 +107,7 @@ string Complete::diff_from( const Complete &existing ) const
   if (!(history_batch == existing.history_batch)) {
     NativeHistory *history = output.add_instruction()->MutableExtension(native_history);
     history->set_first(history_batch.first);
+    history->set_generation(history_batch.generation);
     for (size_t i = 0; i < history_batch.records.size(); ++i)
       history->add_record(history_batch.records[i]);
   }
@@ -151,6 +152,7 @@ void Complete::apply_string( const string & diff )
       fatal_assert(history.record_size() <= static_cast<int>(HistoryBatch::MAX_RECORDS));
       HistoryBatch batch;
       batch.first = history.first();
+      batch.generation = history.generation();
       for (int j = 0; j < history.record_size(); ++j) batch.records.push_back(history.record(j));
       fatal_assert(batch.valid());
       history_batch = batch;

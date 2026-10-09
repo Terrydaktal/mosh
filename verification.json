@@ -188,6 +188,15 @@
         "tests/test_source_build.py",
         "../tmux-simple/tests/test_unified_mosh.py"
       ]
+    },
+    {
+      "id": "HISTORY-REBUILD-01",
+      "contract": "An explicit main-screen ED 3 replaces saved history exactly once, including empty clears and keyboard-height rebuilds. Record IDs remain monotonic across generations; stale ACKs/batches cannot discard or resurrect replaced output. Alternate-screen ED 3 does not purge main history or alter tmux rendering.",
+      "tests": [
+        "tests/native_history_test.cc",
+        "tests/test_history_rebuild.py",
+        "../tmux-simple/tests/test_vte_history_readout.py"
+      ]
     }
   ],
   "manual_gates": [

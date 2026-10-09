@@ -37,6 +37,7 @@
 
 #include "terminaldispatcher.h"
 #include "terminalframebuffer.h"
+#include "nativehistory.h"
 #include "parseraction.h"
 
 using namespace Terminal;
@@ -89,6 +90,9 @@ static void CSI_ED( Framebuffer *fb, Dispatcher *dispatch ) {
     for ( int y = 0; y < fb->ds.get_height(); y++ ) {
       fb->reset_row( fb->get_mutable_row( y ) );
     }
+    break;
+  case 3: /* saved main-screen lines, not the visible screen or alternate buffer */
+    if (!fb->alternate_screen && fb->get_history_log()) fb->get_history_log()->clear();
     break;
   default:
     break;
