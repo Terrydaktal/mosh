@@ -170,6 +170,15 @@
         "tests/test_tiny_zoom.py",
         "tests/test_termux_padding.py"
       ]
+    },
+    {
+      "id": "STATUS-ENDPOINTS-01",
+      "contract": "Version-1 owner-only status adds numeric local UDP bind and last authenticated client endpoints without DNS, packet logging, wire-protocol or phone-client changes. No peer before first authentication; invalid/replayed packets and status requests cannot change peer/contact age; authenticated roaming updates client port.",
+      "tests": [
+        "tests/test_status.py",
+        "../tmux-simple/tests/test_mosh_status.py",
+        "../tmux-simple/tests/test_connection_endpoints.py"
+      ]
     }
   ],
   "manual_gates": [
@@ -662,6 +671,33 @@
       "source_normalization": "Only redundant blank EOF lines in added C++ source files; patch context is preserved.",
       "deployment_changed": false,
       "real_phone_or_vm_tests": false
+    },
+    "endpoint_reporting": {
+      "checked_at_utc": "2026-10-07T00:28:40Z",
+      "version": "1.4.0-native7",
+      "release": "build/release.C95ST6",
+      "server_sha256": "b12c8ceb3fc00d18b3832fa40d0626345a7540ed7fc30addb5edd043076833a8",
+      "api_version": 1,
+      "fields_added": [
+        "local",
+        "peer"
+      ],
+      "status_tests_passed": 4,
+      "report": "../tmux-simple/artifacts/socket-peer.VwUssd/native-status-final.xml",
+      "previous_client_tested": "build/release.C7y3SC/src/frontend/mosh-native-client",
+      "compatibility_profile": {
+        "release": "../tmux-simple/build/mosh-release.WoAggj",
+        "server_sha256": "51ceaf810a8fbd2924661abb06fed19216f4c5fbf3534faea6bcadcb06fc6d47",
+        "shared_header_and_patch_identical": true,
+        "integration_tests_passed": 162
+      },
+      "existing_connections_restarted": false,
+      "phone_changed": false,
+      "scope": "Private PTYs/tmux/status sockets and loopback-only UDP; no user-session interaction or live network/VM scans.",
+      "neighbor_tests_passed": 9,
+      "neighbor_tests_deselected": 15,
+      "neighbor_report": "../tmux-simple/artifacts/socket-peer.VwUssd/native-neighbors.xml",
+      "red_evidence": "../tmux-simple/artifacts/socket-peer.VwUssd/old-server-missing-endpoints.log"
     }
   },
   "restoration": {

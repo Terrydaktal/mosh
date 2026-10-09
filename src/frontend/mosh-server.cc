@@ -934,7 +934,8 @@ static void serve( int host_fd, Terminal::Complete &terminal, ServerConnection &
 
       network.tick();
       if ( status.fd() >= 0 && sel.read( status.fd() ) ) {
-        status.respond( network.get_last_heard() );
+        status.respond( network.get_last_heard(), network_fd,
+                        &network.get_remote_addr().sa, network.get_remote_addr_len() );
       }
     } catch ( const Network::NetworkException &e ) {
       fprintf( stderr, "%s\n", e.what() );

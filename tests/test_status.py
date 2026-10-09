@@ -25,7 +25,7 @@ from test_terminal import (
 
 def test_server_advertises_receive_status_without_changing_history_protocol():
     result = subprocess.run([SERVER, "--version"], capture_output=True, check=True)
-    assert b"1.4.0-native6" in result.stdout
+    assert b"1.4.0-native7" in result.stdout
     assert b"[rx-status1]" in result.stdout
 
 
@@ -49,6 +49,8 @@ def test_no_timestamp_is_invented_before_first_authenticated_packet(
                 "version": 1,
                 "pid": session.server_pid,
                 "last_rx_monotonic_ms": None,
+                "local": {"address": "127.0.0.1", "port": session.link.server[1]},
+                "peer": None,
             }
             assert (
                 mosh_status.read(clients.process(session.server_pid), clients.process)
@@ -59,7 +61,7 @@ def test_no_timestamp_is_invented_before_first_authenticated_packet(
 
 
 @pytest.mark.parametrize(
-    "legacy_client", [False, True], ids=["new-client", "existing-native2"]
+    "legacy_client", [False, True], ids=["new-client", "previous-client"]
 )
 def test_packet_age_inventory_and_cleanup_work_with_direct_history(
     environment, monkeypatch, legacy_client
@@ -81,6 +83,11 @@ def test_packet_age_inventory_and_cleanup_work_with_direct_history(
             owner = clients.process(session.server_pid)
             first = mosh_status.read(owner, clients.process)
             assert first is not None and first["idle_seconds"] <= 1
+            assert (first["local_address"], first["local_port"]) == session.link.server
+            assert (
+                first["peer"],
+                first["peer_port"],
+            ) == session.link.upstream.getsockname()
 
             session.link.paused = True
             app.pump(0.2)
@@ -92,6 +99,7 @@ def test_packet_age_inventory_and_cleanup_work_with_direct_history(
                 == before["network_last_rx_monotonic_ms"]
             )
             assert paused["idle_seconds"] >= 1
+            assert paused["peer_port"] == first["peer_port"]
 
             # Queries, a replay and unauthenticated datagrams must not refresh age.
             assert session.link.last_client_packet is not None
@@ -99,10 +107,16 @@ def test_packet_age_inventory_and_cleanup_work_with_direct_history(
                 session.link.last_client_packet, session.link.server
             )
             session.link.upstream.sendto(b"invalid packet", session.link.server)
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as stranger:
+                stranger.sendto(b"not authenticated", session.link.server)
             app.pump(0.1)
             assert (
                 mosh_status.read(owner, clients.process)["network_last_rx_monotonic_ms"]
                 == paused["network_last_rx_monotonic_ms"]
+            )
+            assert (
+                mosh_status.read(owner, clients.process)["peer_port"]
+                == first["peer_port"]
             )
 
             snapshot = clients.inventory(
@@ -112,6 +126,8 @@ def test_packet_age_inventory_and_cleanup_work_with_direct_history(
                 row for row in snapshot["entries"] if row["mosh_pid"] == owner.pid
             ]
             assert entry["type"] == "DIRECT" and entry["idle_seconds"] >= 1
+            assert entry["socket"] == "udp:" + f"127.0.0.1:{session.link.server[1]}"
+            assert entry["peer_port"] == first["peer_port"]
             assert (entry["width"], entry["height"]) == (80, 24)
             child = clients.process(int((environment / "app.pid").read_text()))
             cleanup = mosh_cleanup.cleanup(
@@ -123,6 +139,7 @@ def test_packet_age_inventory_and_cleanup_work_with_direct_history(
             assert cleanup["entries"][0]["action"] == "would-close"
 
             session.link.paused = False
+            session.link.roam = True
             app.send(b"contact-resumed")
             app.until(
                 lambda state: (
@@ -137,6 +154,11 @@ def test_packet_age_inventory_and_cleanup_work_with_direct_history(
                 > paused["network_last_rx_monotonic_ms"]
             )
             assert resumed["idle_seconds"] <= 1
+            assert (
+                resumed["peer"],
+                resumed["peer_port"],
+            ) == session.link.upstream.getsockname()
+            assert resumed["peer_port"] != first["peer_port"]
             app.send(b"X")
             app.until(
                 lambda state: (

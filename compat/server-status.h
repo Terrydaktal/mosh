@@ -1,6 +1,8 @@
 #ifndef MOSH_SERVER_STATUS_H
 #define MOSH_SERVER_STATUS_H
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +25,32 @@ class ServerStatus {
     return lstat( name.c_str(), &info ) == 0
       && S_ISDIR( info.st_mode ) && info.st_uid == getuid()
       && (info.st_mode & 0077) == 0;
+  }
+
+  static std::string endpoint_json( const struct sockaddr *address, socklen_t length )
+  {
+    if ( !address || length < sizeof address->sa_family ) return "null";
+    char host[INET6_ADDRSTRLEN + 16];
+    unsigned int port;
+    if ( address->sa_family == AF_INET && length >= sizeof( struct sockaddr_in ) ) {
+      const struct sockaddr_in *ip = reinterpret_cast<const struct sockaddr_in *>( address );
+      if ( !inet_ntop( AF_INET, &ip->sin_addr, host, sizeof host ) ) return "null";
+      port = ntohs( ip->sin_port );
+    } else if ( address->sa_family == AF_INET6 && length >= sizeof( struct sockaddr_in6 ) ) {
+      const struct sockaddr_in6 *ip = reinterpret_cast<const struct sockaddr_in6 *>( address );
+      if ( !inet_ntop( AF_INET6, &ip->sin6_addr, host, sizeof host ) ) return "null";
+      if ( ip->sin6_scope_id ) {
+        size_t used = strlen( host );
+        snprintf( host + used, sizeof host - used, "%%%u", ip->sin6_scope_id );
+      }
+      port = ntohs( ip->sin6_port );
+    } else {
+      return "null";
+    }
+    char json[128];
+    // Numeric addresses only: no DNS, keys, terminal data or JSON escaping needed.
+    snprintf( json, sizeof json, "{\"address\":\"%s\",\"port\":%u}", host, port );
+    return json;
   }
 
 public:
@@ -79,9 +107,15 @@ public:
 
   int fd() const { return listener; }
 
-  void respond( uint64_t last_heard ) const
+  void respond( uint64_t last_heard, int network_fd = -1,
+                const struct sockaddr *peer = NULL, socklen_t peer_length = 0 ) const
   {
 #ifdef __linux__
+    struct sockaddr_storage local;
+    socklen_t local_length = sizeof local;
+    std::string local_json = getsockname( network_fd, reinterpret_cast<struct sockaddr *>( &local ), &local_length ) == 0
+      ? endpoint_json( reinterpret_cast<struct sockaddr *>( &local ), local_length ) : "null";
+    std::string peer_json = last_heard == uint64_t( -1 ) ? "null" : endpoint_json( peer, peer_length );
     // One small reply per query. Packet receipt already maintains last_heard.
     for ( int count = 0; count < 8; count++ ) {
       int client = accept4( listener, NULL, NULL, SOCK_NONBLOCK | SOCK_CLOEXEC );
@@ -96,16 +130,21 @@ public:
         } else {
           snprintf( timestamp, sizeof timestamp, "%llu", static_cast<unsigned long long>( last_heard ) );
         }
-        char response[160];
+        char response[512];
         int size = snprintf( response, sizeof response,
-          "{\"version\":1,\"pid\":%ld,\"last_rx_monotonic_ms\":%s}\n",
-          static_cast<long>( getpid() ), timestamp );
-        send( client, response, size, MSG_DONTWAIT | MSG_NOSIGNAL );
+          "{\"version\":1,\"pid\":%ld,\"last_rx_monotonic_ms\":%s,\"local\":%s,\"peer\":%s}\n",
+          static_cast<long>( getpid() ), timestamp, local_json.c_str(), peer_json.c_str() );
+        if ( size > 0 && static_cast<size_t>( size ) < sizeof response ) {
+          send( client, response, size, MSG_DONTWAIT | MSG_NOSIGNAL );
+        }
       }
       close( client );
     }
 #else
     (void)last_heard;
+    (void)network_fd;
+    (void)peer;
+    (void)peer_length;
 #endif
   }
 

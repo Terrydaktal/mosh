@@ -266,6 +266,14 @@ client packet, not keyboard idle time. Unauthenticated traffic, replayed packets
 and local status queries do not refresh it. No extra network listener or polling
 thread is added; requests use the existing event loop and are bounded.
 
+Native7 adds the local UDP bind and last authenticated client address/port to
+the same version-1 status reply. The bind comes from the existing UDP socket;
+the peer comes from Mosh's authenticated receive state, including roaming to a
+new client port. Before the first authenticated packet, `peer` is `null`.
+Status requests and invalid/replayed packets cannot change that peer or refresh
+its age. IPv6 scopes are numeric, and no DNS resolution or packet logging is
+added. The phone client and native history protocol are unchanged.
+
 `tmux-mosh clients` recognizes native servers as `mosh (PID)` / `direct`, reports
 their packet `IDLE`, foreground app/command and PTY size. `tmux-mosh cleanup
 --dry-run` previews cleanup using the same packet timestamp; actual cleanup can
